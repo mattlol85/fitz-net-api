@@ -10,7 +10,6 @@ public class ApiInfoController {
   @GetMapping(value = "/info", produces = "application/json")
   public JsonObject getApiInfo() {
     JsonObject response = new JsonObject();
-
     response.addProperty("status", "alive");
     response.addProperty("collectionCount", 0);
     response.addProperty("version", "0.0.1");
