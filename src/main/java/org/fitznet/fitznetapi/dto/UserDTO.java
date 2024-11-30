@@ -1,9 +1,8 @@
 package org.fitznet.fitznetapi.dto;
 
+import java.util.Locale;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.Locale;
 
 @Data
 @NoArgsConstructor

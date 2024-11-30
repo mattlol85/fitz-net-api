@@ -8,8 +8,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateUserRequestDto {
-    String username;
-    String updatedUsername;
-    String email;
-    String updatedEmail;
+  String username;
+  String updatedUsername;
+  String email;
+  String updatedEmail;
 }
