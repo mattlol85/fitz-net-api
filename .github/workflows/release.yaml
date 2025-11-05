@@ -85,10 +85,10 @@ jobs:
           echo "New version: $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update version in build.gradle.kts
+      - name: Update version to release version in build.gradle.kts
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.version }}"
-          sed -i.bak 's/version = ".*"/version = "'"$NEW_VERSION"'-SNAPSHOT"/' build.gradle.kts
+          sed -i.bak 's/version = ".*"/version = "'"$NEW_VERSION"'"/' build.gradle.kts
           rm build.gradle.kts.bak
           cat build.gradle.kts | grep "^version"
 
@@ -101,10 +101,10 @@ jobs:
       - name: Run tests
         run: ./gradlew test
 
-      - name: Commit version change
+      - name: Commit release version
         run: |
           git add build.gradle.kts
-          git commit -m "Bump version to ${{ steps.new_version.outputs.version }}-SNAPSHOT"
+          git commit -m "Release version ${{ steps.new_version.outputs.version }}"
           git push origin main
 
       - name: Create and push tag
@@ -131,7 +131,20 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
           files: |
-            ./build/libs/fitz-net-api-${{ steps.new_version.outputs.version }}-SNAPSHOT.jar
+            ./build/libs/fitz-net-api-${{ steps.new_version.outputs.version }}.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version to next SNAPSHOT
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          sed -i.bak 's/version = ".*"/version = "'"$NEW_VERSION"'-SNAPSHOT"/' build.gradle.kts
+          rm build.gradle.kts.bak
+          cat build.gradle.kts | grep "^version"
+
+      - name: Commit SNAPSHOT version
+        run: |
+          git add build.gradle.kts
+          git commit -m "Bump version to ${{ steps.new_version.outputs.version }}-SNAPSHOT"
+          git push origin main
 
