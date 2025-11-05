@@ -1,0 +1,79 @@
+name: Auto Tag on Push
+
+# Automatically create tags when commits are pushed to main
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/**'
+      - 'README.md'
+      - '*.md'
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get current version from build.gradle.kts
+        id: get_version
+        run: |
+          VERSION=$(grep "^version = " build.gradle.kts | sed 's/version = "\(.*\)"/\1/' | tr -d ' ')
+          CLEAN_VERSION=$(echo $VERSION | sed 's/-SNAPSHOT//')
+          echo "version=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CLEAN_VERSION"
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG_NAME="v${{ steps.get_version.outputs.version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG_NAME does not exist"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get commit message
+        id: commit_msg
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "message=$COMMIT_MSG" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        if: steps.check_tag.outputs.exists == 'false' && !contains(steps.commit_msg.outputs.message, '[skip-tag]')
+        run: |
+          TAG_NAME="v${{ steps.get_version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a $TAG_NAME -m "Auto-generated tag for version ${{ steps.get_version.outputs.version }}"
+          git push origin $TAG_NAME
+          echo "Created and pushed tag: $TAG_NAME"
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false' && !contains(steps.commit_msg.outputs.message, '[skip-tag]')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          body: |
+            ## Automatic Release
+            
+            Version ${{ steps.get_version.outputs.version }}
+            
+            ### Latest Commit
+            ${{ steps.commit_msg.outputs.message }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
