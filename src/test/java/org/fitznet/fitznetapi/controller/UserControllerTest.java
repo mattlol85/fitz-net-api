@@ -9,7 +9,9 @@ import java.util.Collections;
 import java.util.List;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
+import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
+import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -110,7 +112,7 @@ class UserControllerTest {
 
     assertNotNull(users);
     assertEquals(1, users.size());
-    assertEquals("mattlol85", users.get(0).getUsername());
+    assertEquals("mattlol85", users.getFirst().getUsername());
     verify(userService, times(1)).findAll();
   }
 
@@ -144,12 +146,50 @@ class UserControllerTest {
   @Test
   void updateUserShouldUpdateUserSuccessfully() {
     UpdateUserRequestDto updateUserRequestDto =
-        new UpdateUserRequestDto("mattlol85", "newEmail@example.com", "newPassword", "");
+        new UpdateUserRequestDto("mattlol85", "newUsername", "newEmail@example.com", "newEmail@example.com", "newPassword123");
 
     doNothing().when(userService).updateUser(any(UpdateUserRequestDto.class));
 
     userController.updateUser(updateUserRequestDto);
 
     verify(userService, times(1)).updateUser(any(UpdateUserRequestDto.class));
+  }
+
+  @Test
+  void loginShouldReturnSuccessWhenCredentialsAreValid() {
+    LoginRequestDto loginRequest = new LoginRequestDto("mattlol85", "testPassword123");
+    User user =
+        User.builder()
+            .username("mattlol85")
+            .email("test@example.com")
+            .password("$2a$10$hashedPassword")
+            .build();
+
+    when(userService.verifyPassword("mattlol85", "testPassword123")).thenReturn(true);
+    when(userService.readByUsername("mattlol85")).thenReturn(user);
+
+    LoginResponseDto response = userController.login(loginRequest);
+
+    assertTrue(response.isSuccess());
+    assertEquals("Login successful", response.getMessage());
+    assertEquals("mattlol85", response.getUsername());
+    assertEquals("test@example.com", response.getEmail());
+    verify(userService, times(1)).verifyPassword("mattlol85", "testPassword123");
+  }
+
+  @Test
+  void loginShouldReturnFailureWhenCredentialsAreInvalid() {
+    LoginRequestDto loginRequest = new LoginRequestDto("mattlol85", "wrongPassword");
+
+    when(userService.verifyPassword("mattlol85", "wrongPassword")).thenReturn(false);
+
+    LoginResponseDto response = userController.login(loginRequest);
+
+    assertFalse(response.isSuccess());
+    assertEquals("Invalid username or password", response.getMessage());
+    assertNull(response.getUsername());
+    assertNull(response.getEmail());
+    verify(userService, times(1)).verifyPassword("mattlol85", "wrongPassword");
+    verify(userService, times(0)).readByUsername(any());
   }
 }

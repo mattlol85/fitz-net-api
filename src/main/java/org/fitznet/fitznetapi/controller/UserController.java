@@ -3,7 +3,9 @@ package org.fitznet.fitznetapi.controller;
 import java.util.List;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
+import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
+import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -67,6 +69,20 @@ public class UserController {
     userService.updateUser(updateUserDto);
   }
 
+  @PostMapping("/user/login")
+  public LoginResponseDto login(@RequestBody LoginRequestDto loginRequest) {
+    log.info("Request for /user/login - {}", loginRequest.getUsername());
+
+    boolean isValid = userService.verifyPassword(loginRequest.getUsername(), loginRequest.getPassword());
+
+    if (isValid) {
+      User user = userService.readByUsername(loginRequest.getUsername());
+      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail());
+    } else {
+      return new LoginResponseDto(false, "Invalid username or password", null, null);
+    }
+  }
+
   private void performRequestValidations(UserDTO user) {
     if (doesUserAlreadyExist(user)) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
@@ -74,6 +90,10 @@ public class UserController {
 
     if (isEmailAlreadyInUse(user)) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Email in use");
+    }
+
+    if (user.getPassword() == null || user.getPassword().length() < 8) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password must be at least 8 characters long");
     }
   }
 
