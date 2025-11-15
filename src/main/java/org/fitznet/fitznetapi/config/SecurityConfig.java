@@ -19,15 +19,22 @@ public class SecurityConfig {
   // Fixme: Remove debug auth
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-    http.csrf(AbstractHttpConfigurer::disable) // Use the new lambda-based configuration
-        .authorizeHttpRequests(
-            auth ->
-                auth.requestMatchers("/encrypt", "/decrypt")
-                    .permitAll()
-                    .requestMatchers("/user/**")
-                    .permitAll()
-                    .anyRequest()
-                    .authenticated());
-    return http.build();
+
+      // Some auth...
+//    http.csrf(AbstractHttpConfigurer::disable) // Use the new lambda-based configuration
+//        .authorizeHttpRequests(
+//            auth ->
+//                auth.requestMatchers("/encrypt", "/decrypt")
+//                    .permitAll()
+//                    .requestMatchers("/user/**")
+//                    .permitAll()
+//                    .anyRequest()
+//                    .authenticated());
+//    return http.build();
+
+      //No Auth
+      http.csrf(AbstractHttpConfigurer::disable)
+              .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+      return http.build();
   }
 }

@@ -1,7 +1,5 @@
 package org.fitznet.fitznetapi.service;
 
-import static java.util.Objects.nonNull;
-
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
@@ -40,37 +38,18 @@ public class UserService {
     return userRepository.findByUsername(username);
   }
 
-  public void updateUser(UpdateUserRequestDto updateRequest) {
-    var user = userRepository.findByUsername(updateRequest.getUsername());
-    if (null == user) {
-      log.warn("User not found for update: {}", updateRequest.getUsername());
-      return;
+  public User updateUser(UpdateUserRequestDto updateRequest) {
+    log.info("Updating user: {}", updateRequest.getUsername());
+
+    User updatedUser = userRepository.findAndModifyUser(updateRequest);
+
+    if (updatedUser == null) {
+      log.warn("User not found or no fields to update: {}", updateRequest.getUsername());
+      return null;
     }
 
-    boolean updated = false;
-
-    if (nonNull(updateRequest.getUpdatedUsername())) {
-      log.info("Updating username for user: {}", updateRequest.getUsername());
-      user.setUsername(updateRequest.getUpdatedUsername());
-      updated = true;
-    }
-
-    if (nonNull(updateRequest.getUpdatedEmail())) {
-      log.info("Updating email for user: {}", updateRequest.getUsername());
-      user.setEmail(updateRequest.getUpdatedEmail());
-      updated = true;
-    }
-
-    if (nonNull(updateRequest.getUpdatedPassword())) {
-      log.info("Updating password for user: {}", updateRequest.getUsername());
-      user.setPassword(passwordEncoder.encode(updateRequest.getUpdatedPassword()));
-      updated = true;
-    }
-
-    if (updated) {
-      userRepository.save(user);
-      log.info("User updated successfully");
-    }
+    log.info("User updated successfully: {}", updateRequest.getUsername());
+    return updatedUser;
   }
 
   public boolean verifyPassword(String username, String rawPassword) {
@@ -87,3 +66,4 @@ public class UserService {
     return userRepository.findAll();
   }
 }
+
