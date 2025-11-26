@@ -21,21 +21,13 @@ public class EncryptionController {
 
   @PostMapping(value = "/encrypt", produces = APPLICATION_JSON_VALUE)
   public EncryptResponse encrypt(@RequestBody EncryptRequest request) {
-    try {
-      String encryptedData = encryptionService.encrypt(request.getData());
-      return new EncryptResponse(encryptedData); // Return the response object
-    } catch (Exception e) {
-      throw new RuntimeException("Error encrypting data", e);
-    }
+  String encryptedData = encryptionService.encrypt(request.getData());
+    return new EncryptResponse(encryptedData);
   }
 
   @PostMapping(value = "/decrypt", produces = APPLICATION_JSON_VALUE)
   public EncryptResponse decrypt(@RequestBody EncryptRequest request) {
-    try {
-      String encryptedData = encryptionService.decrypt(request.getData());
-      return new EncryptResponse(encryptedData); // Return the response object
-    } catch (Exception e) {
-      throw new RuntimeException("Error decrypting data", e);
-    }
+    String decryptedData = encryptionService.decrypt(request.getData());
+    return new EncryptResponse(decryptedData);
   }
 }

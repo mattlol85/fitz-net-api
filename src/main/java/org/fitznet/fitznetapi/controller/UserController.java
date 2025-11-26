@@ -1,11 +1,15 @@
 package org.fitznet.fitznetapi.controller;
 
+import jakarta.validation.Valid;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
+import org.fitznet.fitznetapi.dto.requests.ReadSingleAccountRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
+import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -13,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -30,56 +35,71 @@ public class UserController {
   @Autowired private UserRepository userRepository;
 
   @PostMapping("/user/create")
-  public User createUser(@RequestBody UserDTO user) {
+  public ResponseEntity<UserResponseDto> createUser(@Valid @RequestBody UserDTO user) {
     log.info("Request at /user - {}", user.toString());
     user.sanitizeUsernameAndEmail();
     performRequestValidations(user);
-    return userService.saveUser(
+    User saved = userService.saveUser(
         User.builder()
             .username(user.getUsername())
             .email(user.getEmail())
             .password(user.getPassword())
             .build());
+    return ResponseEntity.status(HttpStatus.CREATED).body(UserResponseDto.fromUser(saved));
   }
 
   @PostMapping("/user/read")
-  public User readUser(@RequestBody String username) {
+  public ResponseEntity<UserResponseDto> readUser(@RequestBody ReadSingleAccountRequestDto username) {
     log.info("Request for /user/read - {}", username);
-    return userService.readByUsername(username);
+    User found = userService.readByUsername(username.getUsername());
+    if (found == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+    }
+    return ResponseEntity.ok(UserResponseDto.fromUser(found));
   }
 
   @GetMapping("/user/readAll")
-  public List<User> readAllUsers() {
+  public ResponseEntity<List<UserResponseDto>> readAllUsers() {
     log.info("Request for /user/readAll");
-    return userService.findAll();
+    List<UserResponseDto> users = userService.findAll().stream()
+        .map(UserResponseDto::fromUser)
+        .collect(Collectors.toList());
+    return ResponseEntity.ok(users);
   }
 
   @DeleteMapping("/user/delete")
-  public void deleteUser(@RequestBody DeleteUserRequestDto user) {
+  public ResponseEntity<Void> deleteUser(@RequestBody DeleteUserRequestDto user) {
     log.info("Request for /delete");
     if (!doesUserAlreadyExist(user.getUsername())) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found in db");
     }
     userService.deleteUser(user.getUsername());
+    return ResponseEntity.noContent().build();
   }
 
   @PatchMapping("/user/update")
-  public void updateUser(@RequestBody UpdateUserRequestDto updateUserDto) {
+  public ResponseEntity<UserResponseDto> updateUser(@RequestBody UpdateUserRequestDto updateUserDto) {
     log.info("Request for /update");
-    userService.updateUser(updateUserDto);
+    User updated = userService.updateUser(updateUserDto);
+    if (updated == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found or nothing to update");
+    }
+    return ResponseEntity.ok(UserResponseDto.fromUser(updated));
   }
 
   @PostMapping("/user/login")
-  public LoginResponseDto login(@RequestBody LoginRequestDto loginRequest) {
+  public ResponseEntity<LoginResponseDto> login(@RequestBody LoginRequestDto loginRequest) {
     log.info("Request for /user/login - {}", loginRequest.getUsername());
 
     boolean isValid = userService.verifyPassword(loginRequest.getUsername(), loginRequest.getPassword());
 
     if (isValid) {
       User user = userService.readByUsername(loginRequest.getUsername());
-      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail());
+      LoginResponseDto response = new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail());
+      return ResponseEntity.ok(response);
     } else {
-      return new LoginResponseDto(false, "Invalid username or password", null, null);
+      LoginResponseDto response = new LoginResponseDto(false, "Invalid username or password", null, null);
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
     }
   }
 

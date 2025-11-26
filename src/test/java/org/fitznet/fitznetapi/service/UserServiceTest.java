@@ -48,12 +48,14 @@ class UserServiceTest {
             .password("testPassword")
             .build();
 
+    when(passwordEncoder.encode("testPassword")).thenReturn("hashedPassword");
     when(userRepository.save(any(User.class))).thenReturn(user);
 
     User savedUser = userService.saveUser(user);
 
     assertNotNull(savedUser);
     assertEquals("mattlol85", savedUser.getUsername());
+    verify(passwordEncoder, times(1)).encode("testPassword");
     verify(userRepository, times(1)).save(any(User.class));
   }
 
@@ -103,62 +105,59 @@ class UserServiceTest {
   void updateUserShouldUpdateUsernameWhenUserExists() {
     String oldUsername = "mattlol85";
     String newUsername = "mattnew85";
-    User user =
+    User updatedUser =
         User.builder()
-            .username(oldUsername)
+            .username(newUsername)
             .email("test@example.com")
             .password("$2a$10$hashedPassword")
             .build();
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto(oldUsername, newUsername, null, null, null);
 
-    when(userRepository.findByUsername(oldUsername)).thenReturn(user);
-    when(userRepository.save(any(User.class))).thenReturn(user);
+    when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(updatedUser);
 
-    userService.updateUser(updateUserRequestDto);
+    User result = userService.updateUser(updateUserRequestDto);
 
-    assertEquals(newUsername, user.getUsername());
-    verify(userRepository, times(1)).findByUsername(oldUsername);
-    verify(userRepository, times(1)).save(any(User.class));
+    assertNotNull(result);
+    assertEquals(newUsername, result.getUsername());
+    verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test
   void updateUserShouldUpdatePasswordWhenUserExists() {
     String username = "mattlol85";
     String newPassword = "newPassword123";
-    User user =
+    User updatedUser =
         User.builder()
             .username(username)
             .email("test@example.com")
-            .password("$2a$10$oldHashedPassword")
+            .password("$2a$10$newHashedPassword")
             .build();
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto(username, null, null, null, newPassword);
 
-    when(userRepository.findByUsername(username)).thenReturn(user);
-    when(passwordEncoder.encode(newPassword)).thenReturn("$2a$10$newHashedPassword");
-    when(userRepository.save(any(User.class))).thenReturn(user);
+    when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(updatedUser);
 
-    userService.updateUser(updateUserRequestDto);
+    User result = userService.updateUser(updateUserRequestDto);
 
-    verify(passwordEncoder, times(1)).encode(newPassword);
-    verify(userRepository, times(1)).findByUsername(username);
-    verify(userRepository, times(1)).save(any(User.class));
+    assertNotNull(result);
+    assertEquals(username, result.getUsername());
+    verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test
-  void updateUserShouldDoNothingWhenUserDoesNotExist() {
+  void updateUserShouldReturnNullWhenUserDoesNotExist() {
     String oldUsername = "unknownUser";
     String newUsername = "newUser";
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto(oldUsername, newUsername, null, null, null);
 
-    when(userRepository.findByUsername(oldUsername)).thenReturn(null);
+    when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(null);
 
-    userService.updateUser(updateUserRequestDto);
+    User result = userService.updateUser(updateUserRequestDto);
 
-    verify(userRepository, times(1)).findByUsername(oldUsername);
-    verify(userRepository, times(0)).save(any(User.class));
+    assertNull(result);
+    verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test
@@ -218,7 +217,7 @@ class UserServiceTest {
   }
 
   @Test
-  void findAllsShouldReturnListOfUsers() {
+  void findAllShouldReturnListOfUsers() {
     User user =
         User.builder()
             .username("mattlol85")
@@ -236,3 +235,4 @@ class UserServiceTest {
     verify(userRepository, times(1)).findAll();
   }
 }
+

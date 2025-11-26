@@ -10,8 +10,10 @@ import java.util.List;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
+import org.fitznet.fitznetapi.dto.requests.ReadSingleAccountRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
+import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
 
 class UserControllerTest {
@@ -41,28 +44,32 @@ class UserControllerTest {
   @AfterEach
   public void tearDown() throws Exception {
     if (mocks != null) {
-      mocks.close(); // Properly clean up resources
+      mocks.close();
     }
   }
 
   @Test
   void createUserShouldReturnCreatedUser() {
-    UserDTO userDTO = new UserDTO("mattlol85", "testPassword", "test@example.com");
+    UserDTO userDTO = new UserDTO("mattlol85", "test@example.com", "testPassword123");
     User user =
         User.builder()
+            .id("123")
             .username("mattlol85")
             .email("test@example.com")
-            .password("testPassword")
+            .password("hashedPassword")
             .build();
 
     when(userService.saveUser(any(User.class))).thenReturn(user);
-    when(userRepository.findByUsername(userDTO.getUsername()))
-        .thenReturn(null); // Ensuring user doesn't exist
+    when(userRepository.findByUsername(userDTO.getUsername())).thenReturn(null);
+    when(userRepository.findByEmail(userDTO.getEmail())).thenReturn(null);
 
-    User createdUser = userController.createUser(userDTO);
+    ResponseEntity<UserResponseDto> response = userController.createUser(userDTO);
 
-    assertNotNull(createdUser);
-    assertEquals("mattlol85", createdUser.getUsername());
+    assertNotNull(response);
+    assertEquals(HttpStatus.CREATED, response.getStatusCode());
+    assertNotNull(response.getBody());
+    assertEquals("mattlol85", response.getBody().getUsername());
+    assertEquals("test@example.com", response.getBody().getEmail());
     verify(userService, times(1)).saveUser(any(User.class));
   }
 
@@ -71,29 +78,34 @@ class UserControllerTest {
     String username = "mattlol85";
     User user =
         User.builder()
+            .id("123")
             .username(username)
             .email("test@example.com")
-            .password("testPassword")
+            .password("hashedPassword")
             .build();
 
     when(userService.readByUsername(username)).thenReturn(user);
 
-    User foundUser = userController.readUser(username);
+    ResponseEntity<UserResponseDto> response = userController.readUser(new ReadSingleAccountRequestDto(username));
 
-    assertNotNull(foundUser);
-    assertEquals(username, foundUser.getUsername());
+    assertNotNull(response);
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertNotNull(response.getBody());
+    assertEquals(username, response.getBody().getUsername());
+    assertEquals("test@example.com", response.getBody().getEmail());
     verify(userService, times(1)).readByUsername(username);
   }
 
   @Test
-  void readUserShouldReturnNullWhenUserDoesNotExist() {
+  void readUserShouldThrowNotFoundWhenUserDoesNotExist() {
     String username = "unknownUser";
 
     when(userService.readByUsername(username)).thenReturn(null);
 
-    User foundUser = userController.readUser(username);
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.readUser(new ReadSingleAccountRequestDto(username)));
 
-    assertNull(foundUser);
+    assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
     verify(userService, times(1)).readByUsername(username);
   }
 
@@ -101,18 +113,22 @@ class UserControllerTest {
   void readAllUsersShouldReturnListOfUsers() {
     User user =
         User.builder()
+            .id("123")
             .username("mattlol85")
             .email("test@example.com")
-            .password("testPassword")
+            .password("hashedPassword")
             .build();
 
     when(userService.findAll()).thenReturn(Collections.singletonList(user));
 
-    List<User> users = userController.readAllUsers();
+    ResponseEntity<List<UserResponseDto>> response = userController.readAllUsers();
 
-    assertNotNull(users);
-    assertEquals(1, users.size());
-    assertEquals("mattlol85", users.getFirst().getUsername());
+    assertNotNull(response);
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertNotNull(response.getBody());
+    assertEquals(1, response.getBody().size());
+    assertEquals("mattlol85", response.getBody().getFirst().getUsername());
+    assertEquals("test@example.com", response.getBody().getFirst().getEmail());
     verify(userService, times(1)).findAll();
   }
 
@@ -123,8 +139,10 @@ class UserControllerTest {
     when(userRepository.findByUsername(deleteUserRequestDto.getUsername())).thenReturn(new User());
     doNothing().when(userService).deleteUser(deleteUserRequestDto.getUsername());
 
-    userController.deleteUser(deleteUserRequestDto);
+    ResponseEntity<Void> response = userController.deleteUser(deleteUserRequestDto);
 
+    assertNotNull(response);
+    assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
     verify(userService, times(1)).deleteUser(deleteUserRequestDto.getUsername());
   }
 
@@ -148,10 +166,23 @@ class UserControllerTest {
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto("mattlol85", "newUsername", "newEmail@example.com", "newEmail@example.com", "newPassword123");
 
-    doNothing().when(userService).updateUser(any(UpdateUserRequestDto.class));
+    User updatedUser =
+        User.builder()
+            .id("123")
+            .username("newUsername")
+            .email("newEmail@example.com")
+            .password("hashedNewPassword")
+            .build();
 
-    userController.updateUser(updateUserRequestDto);
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
 
+    ResponseEntity<UserResponseDto> response = userController.updateUser(updateUserRequestDto);
+
+    assertNotNull(response);
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertNotNull(response.getBody());
+    assertEquals("newUsername", response.getBody().getUsername());
+    assertEquals("newEmail@example.com", response.getBody().getEmail());
     verify(userService, times(1)).updateUser(any(UpdateUserRequestDto.class));
   }
 
@@ -168,12 +199,15 @@ class UserControllerTest {
     when(userService.verifyPassword("mattlol85", "testPassword123")).thenReturn(true);
     when(userService.readByUsername("mattlol85")).thenReturn(user);
 
-    LoginResponseDto response = userController.login(loginRequest);
+    ResponseEntity<LoginResponseDto> response = userController.login(loginRequest);
 
-    assertTrue(response.isSuccess());
-    assertEquals("Login successful", response.getMessage());
-    assertEquals("mattlol85", response.getUsername());
-    assertEquals("test@example.com", response.getEmail());
+    assertNotNull(response);
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertNotNull(response.getBody());
+    assertTrue(response.getBody().isSuccess());
+    assertEquals("Login successful", response.getBody().getMessage());
+    assertEquals("mattlol85", response.getBody().getUsername());
+    assertEquals("test@example.com", response.getBody().getEmail());
     verify(userService, times(1)).verifyPassword("mattlol85", "testPassword123");
   }
 
@@ -183,12 +217,15 @@ class UserControllerTest {
 
     when(userService.verifyPassword("mattlol85", "wrongPassword")).thenReturn(false);
 
-    LoginResponseDto response = userController.login(loginRequest);
+    ResponseEntity<LoginResponseDto> response = userController.login(loginRequest);
 
-    assertFalse(response.isSuccess());
-    assertEquals("Invalid username or password", response.getMessage());
-    assertNull(response.getUsername());
-    assertNull(response.getEmail());
+    assertNotNull(response);
+    assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+    assertNotNull(response.getBody());
+    assertFalse(response.getBody().isSuccess());
+    assertEquals("Invalid username or password", response.getBody().getMessage());
+    assertNull(response.getBody().getUsername());
+    assertNull(response.getBody().getEmail());
     verify(userService, times(1)).verifyPassword("mattlol85", "wrongPassword");
     verify(userService, times(0)).readByUsername(any());
   }
