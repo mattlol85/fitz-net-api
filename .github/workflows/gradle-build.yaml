@@ -11,6 +11,10 @@ on:
     branches:
       - main
 
+# Grant GITHUB_TOKEN permission to push tags and create releases
+permissions:
+  contents: write
+
 jobs:
   # Stage 1: Build and Test
   build:
