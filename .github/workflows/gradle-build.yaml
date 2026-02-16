@@ -5,12 +5,16 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
 
 jobs:
+  # Stage 1: Build and Test
   build:
+    name: Build & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -29,9 +33,67 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew build
 
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v5
+        with:
+          name: build-artifacts
+          path: build/libs
+
+  # Stage 2: Tag and Release (only on main branch push, not PRs or existing tags)
+  tag-and-release:
+    name: Tag & Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+      changelog: ${{ steps.tag_version.outputs.changelog }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+          release_branches: main
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: build-artifacts
+          path: build/libs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: ${{ steps.tag_version.outputs.changelog }}
+          draft: false
+          prerelease: false
+          files: build/libs/*.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 3: Build and Push Docker Image
+  docker:
+    name: Docker Build & Push
+    needs: [build, tag-and-release]
+    runs-on: ubuntu-latest
+    if: always() && needs.build.result == 'success' && (github.event_name == 'push' || github.event_name == 'pull_request')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
         with:
           name: build-artifacts
           path: build/libs
@@ -54,6 +116,7 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=pr
+            type=raw,value=${{ needs.tag-and-release.outputs.new_tag }},enable=${{ needs.tag-and-release.outputs.new_tag != '' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
