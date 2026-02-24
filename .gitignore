@@ -30,3 +30,4 @@ replay_pid*
 
 # Environment variables with secrets
 .env
+/build/
