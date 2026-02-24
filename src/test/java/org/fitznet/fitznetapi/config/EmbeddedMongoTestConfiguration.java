@@ -1,16 +1,20 @@
 package org.fitznet.fitznetapi.config;
 
-import de.flapdoodle.embed.mongo.distribution.Version;
+import de.flapdoodle.embed.mongo.packageresolver.Command;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 
+/**
+ * Configuration for embedded MongoDB in tests.
+ * Helps Flapdoodle work across different platforms (macOS, Linux CI, etc.)
+ */
 @TestConfiguration
 public class EmbeddedMongoTestConfiguration {
 
     @Bean
-    public Version.Main version() {
-        // Use MongoDB 4.4 which has better platform support
-        return Version.Main.V4_4;
+    public Command command() {
+        // Explicitly set the MongoDB command
+        return Command.MongoD;
     }
 }
 
