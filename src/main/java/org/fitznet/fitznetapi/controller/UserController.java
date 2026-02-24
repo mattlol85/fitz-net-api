@@ -12,6 +12,7 @@ import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
+import org.fitznet.fitznetapi.util.JwtUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class UserController {
 
   @Autowired UserService userService;
+  @Autowired JwtUtil jwtUtil;
 
   static final Logger log = LoggerFactory.getLogger(UserController.class);
   @Autowired private UserRepository userRepository;
@@ -35,6 +37,7 @@ public class UserController {
   @PostMapping("/user/create")
   public User createUser(@RequestBody @Valid UserDTO user) {
     log.info("Request at /user/create - username: {}", user.getUsername());
+    performRequestValidations(user);
     return userService.saveUser(
         User.builder()
             .username(user.getUsername())
@@ -44,7 +47,7 @@ public class UserController {
   }
 
   @PostMapping("/user/read")
-  public User readUser(@NotBlank String username) {
+  public User readUser(@RequestBody @NotBlank String username) {
     log.info("Request for /user/read - {}", username);
     return userService.readByUsername(username);
   }
@@ -78,9 +81,10 @@ public class UserController {
 
     if (isValid) {
       User user = userService.readByUsername(loginRequest.getUsername());
-      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail());
+      String token = jwtUtil.generateToken(user.getUsername());
+      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail(), token);
     } else {
-      return new LoginResponseDto(false, "Invalid username or password", null, null);
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
     }
   }
 
@@ -88,5 +92,31 @@ public class UserController {
     var possibleUser = userRepository.findByUsername(username);
     log.info("Checking to see if user {} exists in db", username);
     return null != possibleUser;
+  }
+
+  private boolean doesUserAlreadyExist(UserDTO user) {
+    var possibleUser = userRepository.findByUsername(user.getUsername());
+    log.info("Checking to see if user {} exists in db", user.getUsername());
+    return null != possibleUser;
+  }
+
+  private boolean isEmailAlreadyInUse(UserDTO user) {
+    var possibleUser = userRepository.findByEmail(user.getEmail());
+    log.info("Checking to see if email {} exists in db", user.getEmail());
+    return null != possibleUser;
+  }
+
+  private void performRequestValidations(UserDTO user) {
+    if (doesUserAlreadyExist(user)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
+    }
+
+    if (isEmailAlreadyInUse(user)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Email in use");
+    }
+
+    if (user.getPassword() == null || user.getPassword().length() < 8) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password must be at least 8 characters long");
+    }
   }
 }

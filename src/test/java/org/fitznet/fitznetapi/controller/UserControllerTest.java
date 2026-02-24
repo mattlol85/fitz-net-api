@@ -15,6 +15,7 @@ import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
+import org.fitznet.fitznetapi.util.JwtUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,8 @@ class UserControllerTest {
   @Mock private UserService userService;
 
   @Mock private UserRepository userRepository;
+
+  @Mock private JwtUtil jwtUtil;
 
   @InjectMocks private UserController userController;
 
@@ -58,6 +61,8 @@ class UserControllerTest {
     when(userService.saveUser(any(User.class))).thenReturn(user);
     when(userRepository.findByUsername(userDTO.getUsername()))
         .thenReturn(null); // Ensuring user doesn't exist
+    when(userRepository.findByEmail(userDTO.getEmail()))
+        .thenReturn(null); // Ensuring email doesn't exist
 
     User createdUser = userController.createUser(userDTO);
 
@@ -167,6 +172,7 @@ class UserControllerTest {
 
     when(userService.verifyPassword("mattlol85", "testPassword123")).thenReturn(true);
     when(userService.readByUsername("mattlol85")).thenReturn(user);
+    when(jwtUtil.generateToken("mattlol85")).thenReturn("mock-jwt-token");
 
     LoginResponseDto response = userController.login(loginRequest);
 
@@ -174,7 +180,9 @@ class UserControllerTest {
     assertEquals("Login successful", response.getMessage());
     assertEquals("mattlol85", response.getUsername());
     assertEquals("test@example.com", response.getEmail());
+    assertEquals("mock-jwt-token", response.getToken());
     verify(userService, times(1)).verifyPassword("mattlol85", "testPassword123");
+    verify(jwtUtil, times(1)).generateToken("mattlol85");
   }
 
   @Test
@@ -183,12 +191,11 @@ class UserControllerTest {
 
     when(userService.verifyPassword("mattlol85", "wrongPassword")).thenReturn(false);
 
-    LoginResponseDto response = userController.login(loginRequest);
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.login(loginRequest));
 
-    assertFalse(response.isSuccess());
-    assertEquals("Invalid username or password", response.getMessage());
-    assertNull(response.getUsername());
-    assertNull(response.getEmail());
+    assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+    assertEquals("Invalid username or password", exception.getReason());
     verify(userService, times(1)).verifyPassword("mattlol85", "wrongPassword");
     verify(userService, times(0)).readByUsername(any());
   }
