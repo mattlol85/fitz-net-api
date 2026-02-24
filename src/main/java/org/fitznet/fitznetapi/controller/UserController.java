@@ -1,6 +1,9 @@
 package org.fitznet.fitznetapi.controller;
 
+import jakarta.validation.Valid;
 import java.util.List;
+
+import jakarta.validation.constraints.NotBlank;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
@@ -30,10 +33,8 @@ public class UserController {
   @Autowired private UserRepository userRepository;
 
   @PostMapping("/user/create")
-  public User createUser(@RequestBody UserDTO user) {
-    log.info("Request at /user - {}", user.toString());
-    user.sanitizeUsernameAndEmail();
-    performRequestValidations(user);
+  public User createUser(@RequestBody @Valid UserDTO user) {
+    log.info("Request at /user/create - username: {}", user.getUsername());
     return userService.saveUser(
         User.builder()
             .username(user.getUsername())
@@ -43,7 +44,7 @@ public class UserController {
   }
 
   @PostMapping("/user/read")
-  public User readUser(@RequestBody String username) {
+  public User readUser(@NotBlank String username) {
     log.info("Request for /user/read - {}", username);
     return userService.readByUsername(username);
   }
@@ -55,7 +56,7 @@ public class UserController {
   }
 
   @DeleteMapping("/user/delete")
-  public void deleteUser(@RequestBody DeleteUserRequestDto user) {
+  public void deleteUser(@RequestBody @Valid DeleteUserRequestDto user) {
     log.info("Request for /delete");
     if (!doesUserAlreadyExist(user.getUsername())) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found in db");
@@ -64,13 +65,13 @@ public class UserController {
   }
 
   @PatchMapping("/user/update")
-  public void updateUser(@RequestBody UpdateUserRequestDto updateUserDto) {
+  public void updateUser(@RequestBody @Valid UpdateUserRequestDto updateUserDto) {
     log.info("Request for /update");
     userService.updateUser(updateUserDto);
   }
 
   @PostMapping("/user/login")
-  public LoginResponseDto login(@RequestBody LoginRequestDto loginRequest) {
+  public LoginResponseDto login(@RequestBody @Valid LoginRequestDto loginRequest) {
     log.info("Request for /user/login - {}", loginRequest.getUsername());
 
     boolean isValid = userService.verifyPassword(loginRequest.getUsername(), loginRequest.getPassword());
@@ -81,32 +82,6 @@ public class UserController {
     } else {
       return new LoginResponseDto(false, "Invalid username or password", null, null);
     }
-  }
-
-  private void performRequestValidations(UserDTO user) {
-    if (doesUserAlreadyExist(user)) {
-      throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
-    }
-
-    if (isEmailAlreadyInUse(user)) {
-      throw new ResponseStatusException(HttpStatus.CONFLICT, "Email in use");
-    }
-
-    if (user.getPassword() == null || user.getPassword().length() < 8) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password must be at least 8 characters long");
-    }
-  }
-
-  private boolean isEmailAlreadyInUse(UserDTO user) {
-    var possibleUser = userRepository.findByEmail(user.getEmail());
-    log.info("Checking to see if email {} exists in db", user.getEmail());
-    return null != possibleUser;
-  }
-
-  private boolean doesUserAlreadyExist(UserDTO user) {
-    var possibleUser = userRepository.findByUsername(user.getUsername());
-    log.info("Checking to see if user {} exists in db", user.getUsername());
-    return null != possibleUser;
   }
 
   private boolean doesUserAlreadyExist(String username) {

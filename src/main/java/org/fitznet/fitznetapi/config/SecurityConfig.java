@@ -26,6 +26,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/user/**")
                     .permitAll()
+                    .requestMatchers("/actuator/health", "/actuator/info", "/error")
+                    .permitAll()
                     .anyRequest()
                     .authenticated());
     return http.build();

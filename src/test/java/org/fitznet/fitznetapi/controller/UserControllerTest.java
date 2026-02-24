@@ -47,7 +47,7 @@ class UserControllerTest {
 
   @Test
   void createUserShouldReturnCreatedUser() {
-    UserDTO userDTO = new UserDTO("mattlol85", "testPassword", "test@example.com");
+    UserDTO userDTO = new UserDTO("mattlol85", "test@example.com", "testPassword");
     User user =
         User.builder()
             .username("mattlol85")

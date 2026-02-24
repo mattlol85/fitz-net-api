@@ -1,26 +1,31 @@
 package org.fitznet.fitznetapi.dto;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
 import java.util.Locale;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.ToString;
+import lombok.Value;
 
-@Data
-@NoArgsConstructor
+@Value
+@ToString(exclude = "password")
 public class UserDTO {
-  private String username;
-  private String email;
-  private String password;
+  @NotBlank String username;
+  @Email String email;
+  @NotBlank String password;
 
-  public UserDTO(String username, String email, String password) {
-    this.username = username;
-    this.email = email;
+  @JsonCreator
+  public UserDTO(
+      @JsonProperty("username") String username,
+      @JsonProperty("email") String email,
+      @JsonProperty("password") String password) {
+    this.username = normalize(username);
+    this.email = normalize(email);
     this.password = password;
-
-    sanitizeUsernameAndEmail();
   }
 
-  public void sanitizeUsernameAndEmail() {
-    this.username = this.username.toLowerCase(Locale.ROOT);
-    this.email = this.email.toLowerCase(Locale.ROOT);
+  private static String normalize(String value) {
+    return value == null ? null : value.toLowerCase(Locale.ROOT);
   }
 }
