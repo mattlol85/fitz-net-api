@@ -27,3 +27,7 @@ replay_pid*
 /.gradle/
 /.idea/
 /.vscode/
+
+# Environment variables with secrets
+.env
+/build/
