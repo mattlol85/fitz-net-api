@@ -1,0 +1,287 @@
+name: 🚀 Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment-type:
+        description: "Version increment type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: 🧪 Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: ✅ Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v5
+
+      - name: 🔧 Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: 🔨 Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: 🧪 Run tests & build
+        run: |
+          echo "::group::Gradle build"
+          ./gradlew clean test bootJar --console=plain
+          echo "::endgroup::"
+
+      - name: 📦 Capture JAR details
+        id: artifact
+        run: |
+          JAR_FILE=$(find build/libs -name "*.jar" -not -name "*-plain.jar" | head -1)
+          if [[ -z "$JAR_FILE" ]]; then
+            echo "No bootable JAR produced" >&2
+            exit 1
+          fi
+          echo "jar-path=$JAR_FILE" >> $GITHUB_OUTPUT
+          echo "jar-name=$(basename "$JAR_FILE")" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload JAR artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: application-jar
+          path: ${{ steps.artifact.outputs.jar-path }}
+          retention-days: 30
+
+  version:
+    name: 🏷️ Version & Tag
+    runs-on: ubuntu-latest
+    needs: build
+    outputs:
+      new-version: ${{ steps.version_calc.outputs.new-version }}
+      new-version-no-v: ${{ steps.version_calc.outputs.new-version-no-v }}
+      increment-type: ${{ steps.version_calc.outputs.increment-type }}
+      emoji: ${{ steps.version_calc.outputs.emoji }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Determine next version
+        id: version_calc
+        env:
+          INCREMENT_TYPE: ${{ github.event.inputs.increment-type }}
+        run: |
+          set -euo pipefail
+          echo "::group::Calculating version"
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          VERSION=${LATEST_TAG#v}
+          IFS='.' read -ra PARTS <<< "$VERSION"
+          MAJOR=${PARTS[0]:-0}
+          MINOR=${PARTS[1]:-0}
+          PATCH=${PARTS[2]:-0}
+
+          # Ensure numeric values
+          MAJOR=$((MAJOR + 0))
+          MINOR=$((MINOR + 0))
+          PATCH=$((PATCH + 0))
+
+          # Use input increment type
+          INCREMENT="$INCREMENT_TYPE"
+          case "$INCREMENT" in
+            major)
+              EMOJI="🚀"
+              MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor)
+              EMOJI="✨"
+              MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch)
+              EMOJI="🐛"
+              PATCH=$((PATCH + 1)) ;;
+            *)
+              echo "Invalid increment type: $INCREMENT" >&2
+              exit 1 ;;
+          esac
+
+          NEW_VERSION_NO_V="$MAJOR.$MINOR.$PATCH"
+          NEW_VERSION="v$NEW_VERSION_NO_V"
+
+          echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "new-version-no-v=$NEW_VERSION_NO_V" >> "$GITHUB_OUTPUT"
+          echo "increment-type=$INCREMENT" >> "$GITHUB_OUTPUT"
+          echo "emoji=$EMOJI" >> "$GITHUB_OUTPUT"
+          echo "$EMOJI $LATEST_TAG -> $NEW_VERSION ($INCREMENT)"
+          echo "::endgroup::"
+
+      - name: 📝 Update build.gradle
+        env:
+          NEW_VERSION_NO_V: ${{ steps.version_calc.outputs.new-version-no-v }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path('build.gradle.kts')
+          text = path.read_text()
+          new_version = os.environ['NEW_VERSION_NO_V']
+          updated, count = re.subn(r'version\s*=\s*["\'][^"\']+["\']', f'version = "{new_version}"', text, count=1)
+          if count == 0:
+              raise SystemExit('Failed to update version in build.gradle.kts')
+          path.write_text(updated)
+          print(f"Updated build.gradle.kts to {new_version}")
+          PY
+
+      - name: 📄 Show version change
+        run: grep "version =" -n build.gradle.kts
+
+      - name: 📚 Commit version bump
+        env:
+          NEW_VERSION: ${{ steps.version_calc.outputs.new-version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build.gradle.kts
+          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          git push origin ${{ github.ref_name }}
+
+      - name: 🏷️ Create annotated tag
+        env:
+          NEW_VERSION: ${{ steps.version_calc.outputs.new-version }}
+          INCREMENT: ${{ steps.version_calc.outputs.increment-type }}
+          EMOJI: ${{ steps.version_calc.outputs.emoji }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_VERSION" -m "$EMOJI Auto $INCREMENT release $NEW_VERSION"
+          git push origin "$NEW_VERSION"
+
+  release:
+    name: 📦 Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: version
+    if: needs.version.result == 'success'
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 📥 Download JAR artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: application-jar
+          path: downloaded-jar
+
+      - name: 🔄 Rename JAR to release version
+        id: final_jar
+        env:
+          NEW_VERSION_NO_V: ${{ needs.version.outputs.new-version-no-v }}
+        run: |
+          ORIGINAL_JAR=$(find downloaded-jar -name "*.jar" | head -1)
+          if [[ -z "$ORIGINAL_JAR" ]]; then
+            echo "No artifact found" >&2
+            exit 1
+          fi
+          BASE_NAME=$(basename "$ORIGINAL_JAR" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+.*\.jar$//')
+          NEW_NAME="${BASE_NAME}-${NEW_VERSION_NO_V}.jar"
+          NEW_PATH="downloaded-jar/$NEW_NAME"
+          if [[ "$ORIGINAL_JAR" != "$NEW_PATH" ]]; then
+            mv "$ORIGINAL_JAR" "$NEW_PATH"
+          fi
+          echo "jar-path=$NEW_PATH" >> $GITHUB_OUTPUT
+          echo "jar-name=$NEW_NAME" >> $GITHUB_OUTPUT
+
+      - name: 📦 Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ needs.version.outputs.new-version }}
+          INCREMENT: ${{ needs.version.outputs.increment-type }}
+          EMOJI: ${{ needs.version.outputs.emoji }}
+          JAR_NAME: ${{ steps.final_jar.outputs.jar-name }}
+          JAR_PATH: ${{ steps.final_jar.outputs.jar-path }}
+        run: |
+          NOTES_FILE=$(mktemp)
+          {
+            echo "## $EMOJI Release"
+            echo "Manual release for $NEW_VERSION"
+            echo ""
+            echo "- Version increment: $INCREMENT"
+            echo "- Released by: ${{ github.actor }}"
+            echo ""
+            echo "### 📦 Artifact"
+            echo "- $JAR_NAME"
+          } > "$NOTES_FILE"
+          gh release create "$NEW_VERSION" --title "$EMOJI Release $NEW_VERSION" --notes-file "$NOTES_FILE" "$JAR_PATH"
+
+  docker:
+    name: 🐳 Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [version, release]
+    if: needs.version.result == 'success' && needs.release.result == 'success'
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.version.outputs.new-version }}
+
+      - name: 🔐 Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🏗️ Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: 🏗️ Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔍 Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/fitz-net-api
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ needs.version.outputs.new-version-no-v }}
+            type=raw,value=${{ needs.version.outputs.new-version }}
+            type=sha,prefix=
+
+      - name: 🐳 Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/fitz-net-api:latest
+          cache-to: type=inline
+          build-args: |
+            VERSION=${{ needs.version.outputs.new-version-no-v }}
+
+      - name: 📝 Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/fitz-net-api
+          readme-filepath: ./README.md
+        continue-on-error: true
+
