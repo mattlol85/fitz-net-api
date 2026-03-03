@@ -105,21 +105,18 @@ class UserServiceTest {
     String newUsername = "mattnew85";
     User user =
         User.builder()
-            .username(oldUsername)
+            .username(newUsername)
             .email("test@example.com")
             .password("$2a$10$hashedPassword")
             .build();
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto(oldUsername, newUsername, null, null, null);
 
-    when(userRepository.findByUsername(oldUsername)).thenReturn(user);
-    when(userRepository.save(any(User.class))).thenReturn(user);
+    when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(user);
 
     userService.updateUser(updateUserRequestDto);
 
-    assertEquals(newUsername, user.getUsername());
-    verify(userRepository, times(1)).findByUsername(oldUsername);
-    verify(userRepository, times(1)).save(any(User.class));
+    verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test
@@ -130,20 +127,16 @@ class UserServiceTest {
         User.builder()
             .username(username)
             .email("test@example.com")
-            .password("$2a$10$oldHashedPassword")
+            .password("$2a$10$newHashedPassword")
             .build();
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto(username, null, null, null, newPassword);
 
-    when(userRepository.findByUsername(username)).thenReturn(user);
-    when(passwordEncoder.encode(newPassword)).thenReturn("$2a$10$newHashedPassword");
-    when(userRepository.save(any(User.class))).thenReturn(user);
+    when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(user);
 
     userService.updateUser(updateUserRequestDto);
 
-    verify(passwordEncoder, times(1)).encode(newPassword);
-    verify(userRepository, times(1)).findByUsername(username);
-    verify(userRepository, times(1)).save(any(User.class));
+    verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test
@@ -153,12 +146,11 @@ class UserServiceTest {
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto(oldUsername, newUsername, null, null, null);
 
-    when(userRepository.findByUsername(oldUsername)).thenReturn(null);
+    when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(null);
 
     userService.updateUser(updateUserRequestDto);
 
-    verify(userRepository, times(1)).findByUsername(oldUsername);
-    verify(userRepository, times(0)).save(any(User.class));
+    verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test

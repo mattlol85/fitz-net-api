@@ -33,6 +33,7 @@ class JwtAuthenticationIntegrationTest {
 
   @Autowired private JwtUtil jwtUtil;
 
+  private static final String ALLOWED_ORIGIN = "https://fitznet.doomdns.org";
 
   private String validToken;
 
@@ -221,12 +222,27 @@ class JwtAuthenticationIntegrationTest {
       assertTrue(jwtUtil.validateToken(response.getToken()));
     }
   }
+
+  @Test
+  void actuatorInfoShouldReturnCorsHeaderForAllowedOrigin() throws Exception {
+    mockMvc
+        .perform(
+            get("/actuator/info")
+                .header("Origin", ALLOWED_ORIGIN)
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN));
+  }
+
+  @Test
+  void preflightOptionsShouldBeAllowedForProtectedEndpoint() throws Exception {
+    mockMvc
+        .perform(
+            options("/user/read")
+                .header("Origin", ALLOWED_ORIGIN)
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN));
+  }
 }
-
-
-
-
-
-
-
-
