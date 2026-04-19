@@ -114,8 +114,10 @@ class UserServiceTest {
 
     when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(user);
 
-    userService.updateUser(updateUserRequestDto);
+    User result = userService.updateUser(updateUserRequestDto);
 
+    assertNotNull(result);
+    assertEquals(newUsername, result.getUsername());
     verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
@@ -134,13 +136,14 @@ class UserServiceTest {
 
     when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(user);
 
-    userService.updateUser(updateUserRequestDto);
+    User result = userService.updateUser(updateUserRequestDto);
 
+    assertNotNull(result);
     verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 
   @Test
-  void updateUserShouldDoNothingWhenUserDoesNotExist() {
+  void updateUserShouldReturnNullWhenUserDoesNotExist() {
     String oldUsername = "unknownUser";
     String newUsername = "newUser";
     UpdateUserRequestDto updateUserRequestDto =
@@ -148,8 +151,9 @@ class UserServiceTest {
 
     when(userRepository.findAndModifyUser(updateUserRequestDto)).thenReturn(null);
 
-    userService.updateUser(updateUserRequestDto);
+    User result = userService.updateUser(updateUserRequestDto);
 
+    assertNull(result);
     verify(userRepository, times(1)).findAndModifyUser(updateUserRequestDto);
   }
 

@@ -10,8 +10,10 @@ import java.util.List;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
+import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
+import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -22,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.server.ResponseStatusException;
 
 class UserControllerTest {
@@ -43,6 +47,7 @@ class UserControllerTest {
 
   @AfterEach
   public void tearDown() throws Exception {
+    SecurityContextHolder.clearContext();
     if (mocks != null) {
       mocks.close(); // Properly clean up resources
     }
@@ -153,7 +158,8 @@ class UserControllerTest {
     UpdateUserRequestDto updateUserRequestDto =
         new UpdateUserRequestDto("mattlol85", "newUsername", "newEmail@example.com", "newEmail@example.com", "newPassword123");
 
-    doNothing().when(userService).updateUser(any(UpdateUserRequestDto.class));
+    User updatedUser = User.builder().username("newUsername").email("newEmail@example.com").build();
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
 
     userController.updateUser(updateUserRequestDto);
 
@@ -198,5 +204,93 @@ class UserControllerTest {
     assertEquals("Invalid username or password", exception.getReason());
     verify(userService, times(1)).verifyPassword("mattlol85", "wrongPassword");
     verify(userService, times(0)).readByUsername(any());
+  }
+
+  @Test
+  void updateProfileShouldReturnUpdatedUserWhenSuccessful() {
+    // Set up security context with authenticated user
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateProfileRequestDto profileRequest = new UpdateProfileRequestDto("newUsername", "new@example.com", "newPassword123");
+
+    User updatedUser = User.builder()
+        .username("newUsername")
+        .email("new@example.com")
+        .password("$2a$10$hashedPassword")
+        .build();
+
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
+
+    UpdateProfileResponseDto response = userController.updateProfile(profileRequest);
+
+    assertTrue(response.isSuccess());
+    assertEquals("Profile updated successfully", response.getMessage());
+    assertEquals("newUsername", response.getUsername());
+    assertEquals("new@example.com", response.getEmail());
+    verify(userService, times(1)).updateUser(any(UpdateUserRequestDto.class));
+  }
+
+  @Test
+  void updateProfileShouldThrowNotFoundWhenUserDoesNotExist() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("unknownUser", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateProfileRequestDto profileRequest = new UpdateProfileRequestDto("newUsername", "new@example.com", null);
+
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(null);
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.updateProfile(profileRequest));
+
+    assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+  }
+
+  @Test
+  void updateProfileShouldUpdateEmailOnlyWhenUsernameUnchanged() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    // Username same as current user, only email changes
+    UpdateProfileRequestDto profileRequest = new UpdateProfileRequestDto("mattlol85", "updated@example.com", null);
+
+    User updatedUser = User.builder()
+        .username("mattlol85")
+        .email("updated@example.com")
+        .password("$2a$10$hashedPassword")
+        .build();
+
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
+
+    UpdateProfileResponseDto response = userController.updateProfile(profileRequest);
+
+    assertTrue(response.isSuccess());
+    assertEquals("mattlol85", response.getUsername());
+    assertEquals("updated@example.com", response.getEmail());
+  }
+
+  @Test
+  void updateProfileShouldUpdatePasswordWhenProvided() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateProfileRequestDto profileRequest = new UpdateProfileRequestDto("mattlol85", "test@example.com", "newSecurePassword");
+
+    User updatedUser = User.builder()
+        .username("mattlol85")
+        .email("test@example.com")
+        .password("$2a$10$newHashedPassword")
+        .build();
+
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
+
+    UpdateProfileResponseDto response = userController.updateProfile(profileRequest);
+
+    assertTrue(response.isSuccess());
+    verify(userService, times(1)).updateUser(any(UpdateUserRequestDto.class));
   }
 }
