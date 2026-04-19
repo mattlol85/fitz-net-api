@@ -38,17 +38,18 @@ public class UserService {
     return userRepository.findByUsername(username);
   }
 
-  public void updateUser(UpdateUserRequestDto updateRequest) {
+  public User updateUser(UpdateUserRequestDto updateRequest) {
     log.info("Updating user: {}", updateRequest.getUsername());
 
     User updatedUser = userRepository.findAndModifyUser(updateRequest);
 
     if (updatedUser == null) {
       log.warn("User not found or no fields to update: {}", updateRequest.getUsername());
-      return;
+      return null;
     }
 
     log.info("User updated successfully: {}", updateRequest.getUsername());
+    return updatedUser;
   }
 
   public boolean verifyPassword(String username, String rawPassword) {

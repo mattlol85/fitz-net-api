@@ -7,8 +7,10 @@ import jakarta.validation.constraints.NotBlank;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
+import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
+import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -17,10 +19,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -69,8 +74,48 @@ public class UserController {
 
   @PatchMapping("/user/update")
   public void updateUser(@RequestBody @Valid UpdateUserRequestDto updateUserDto) {
-    log.info("Request for /update");
+    log.info("Request for /update (PATCH)");
     userService.updateUser(updateUserDto);
+  }
+
+  @PutMapping("/user/update")
+  public UpdateProfileResponseDto updateProfile(@RequestBody @Valid UpdateProfileRequestDto profileRequest) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUsername = auth.getName();
+    log.info("Request for /user/update (PUT) - authenticated user: {}", currentUsername);
+
+    // Map the simple profile request to the internal update DTO
+    UpdateUserRequestDto updateDto = new UpdateUserRequestDto();
+    updateDto.setUsername(currentUsername);
+
+    boolean hasUpdates = false;
+
+    if (profileRequest.getUsername() != null && !profileRequest.getUsername().equals(currentUsername)) {
+      updateDto.setUpdatedUsername(profileRequest.getUsername());
+      hasUpdates = true;
+    }
+
+    if (profileRequest.getEmail() != null) {
+      updateDto.setUpdatedEmail(profileRequest.getEmail());
+      hasUpdates = true;
+    }
+
+    if (profileRequest.getPassword() != null && !profileRequest.getPassword().isBlank()) {
+      updateDto.setUpdatedPassword(profileRequest.getPassword());
+      hasUpdates = true;
+    }
+
+    if (!hasUpdates) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No fields to update");
+    }
+
+    User updatedUser = userService.updateUser(updateDto);
+
+    if (updatedUser == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+    }
+
+    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail());
   }
 
   @PostMapping("/user/login")
