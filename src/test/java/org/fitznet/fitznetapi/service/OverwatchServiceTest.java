@@ -1,0 +1,115 @@
+package org.fitznet.fitznetapi.service;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
+import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
+import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.repository.UserRepository;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+class OverwatchServiceTest {
+
+  @Mock private OverwatchClient overwatchClient;
+
+  @Mock private UserRepository userRepository;
+
+  private AutoCloseable mocks;
+  private OverwatchService overwatchService;
+
+  @BeforeEach
+  void setUp() {
+    mocks = MockitoAnnotations.openMocks(this);
+    overwatchService = new OverwatchService(overwatchClient, userRepository);
+  }
+
+  @AfterEach
+  void tearDown() throws Exception {
+    if (mocks != null) {
+      mocks.close();
+    }
+  }
+
+  @Test
+  void attachProfileShouldValidateAndSaveOverwatchStats() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    User user = User.builder().username("matt").email("matt@example.com").build();
+    OverwatchPlayerSummaryDto summary = new OverwatchPlayerSummaryDto();
+    summary.setPlayerId("Matt-1234");
+    summary.setName("Matt#1234");
+    summary.setAvatar("https://example.com/avatar.png");
+
+    when(userRepository.findByUsername("matt")).thenReturn(user);
+    when(overwatchClient.getPlayerSummary("Matt-1234")).thenReturn(summary);
+    when(overwatchClient.getStatsSummary("Matt-1234", "competitive", "pc"))
+        .thenReturn(
+            mapper.readTree(
+                """
+                {
+                  "general": {
+                    "games_won": 42,
+                    "games_played": 84,
+                    "eliminations": 2100,
+                    "deaths": 700,
+                    "damage": 123456,
+                    "healing": 10000
+                  }
+                }
+                """));
+    when(userRepository.save(user)).thenReturn(user);
+
+    OverwatchProfileDto result =
+        overwatchService.attachProfile("matt", "Matt-1234", "competitive", "pc");
+
+    assertEquals("Matt-1234", result.getPlayerId());
+    assertEquals("Matt#1234", result.getDisplayName());
+    assertEquals(42, result.getGamesWon());
+    assertEquals(84, result.getGamesPlayed());
+    assertEquals(50.0, result.getWinrate());
+    assertEquals(3.0, result.getKda());
+    assertNotNull(result.getLastUpdatedAt());
+    verify(userRepository, times(1)).save(user);
+  }
+
+  @Test
+  void getLeaderboardShouldSortByWinrateThenGamesWon() {
+    User best =
+        User.builder()
+            .username("best")
+            .overwatchPlayerId("Best-1")
+            .overwatchWinrate(65.0)
+            .overwatchGamesWon(20)
+            .build();
+    User tieWinner =
+        User.builder()
+            .username("tieWinner")
+            .overwatchPlayerId("Tie-1")
+            .overwatchWinrate(55.0)
+            .overwatchGamesWon(30)
+            .build();
+    User tieLoser =
+        User.builder()
+            .username("tieLoser")
+            .overwatchPlayerId("Tie-2")
+            .overwatchWinrate(55.0)
+            .overwatchGamesWon(10)
+            .build();
+    User unattached = User.builder().username("nope").build();
+
+    when(userRepository.findAll()).thenReturn(List.of(tieLoser, unattached, tieWinner, best));
+
+    List<OverwatchProfileDto> leaderboard = overwatchService.getLeaderboard();
+
+    assertEquals(List.of("best", "tieWinner", "tieLoser"), leaderboard.stream().map(OverwatchProfileDto::getUsername).toList());
+  }
+}
