@@ -6,8 +6,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import org.fitznet.fitznetapi.dto.overfast.OverfastGeneralStatsDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerCompleteDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastStatsSummaryResponseDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastStatsTotalsDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
 import org.fitznet.fitznetapi.model.User;
@@ -41,31 +44,33 @@ class OverwatchServiceTest {
   }
 
   @Test
-  void attachProfileShouldValidateAndSaveOverwatchStats() throws Exception {
-    ObjectMapper mapper = new ObjectMapper();
+  void attachProfileShouldValidateAndSaveOverwatchStats() {
     User user = User.builder().username("matt").email("matt@example.com").build();
+
     OverwatchPlayerSummaryDto summary = new OverwatchPlayerSummaryDto();
     summary.setPlayerId("Matt-1234");
     summary.setName("Matt#1234");
     summary.setAvatar("https://example.com/avatar.png");
 
+    OverfastStatsTotalsDto totals = new OverfastStatsTotalsDto();
+    totals.setEliminations(2100);
+    totals.setDeaths(700);
+
+    OverfastGeneralStatsDto general = new OverfastGeneralStatsDto();
+    general.setGamesWon(42);
+    general.setGamesPlayed(84);
+    general.setTotal(totals);
+
+    OverfastStatsSummaryResponseDto statsSummary = new OverfastStatsSummaryResponseDto();
+    statsSummary.setGeneral(general);
+
+    // getCompletePlayerInfo returns an empty DTO (no competitive data)
+    OverfastPlayerCompleteDto playerComplete = new OverfastPlayerCompleteDto();
+
     when(userRepository.findByUsername("matt")).thenReturn(user);
     when(overwatchClient.getPlayerSummary("Matt-1234")).thenReturn(summary);
-    when(overwatchClient.getStatsSummary("Matt-1234", "competitive", "pc"))
-        .thenReturn(
-            mapper.readTree(
-                """
-                {
-                  "general": {
-                    "games_won": 42,
-                    "games_played": 84,
-                    "eliminations": 2100,
-                    "deaths": 700,
-                    "damage": 123456,
-                    "healing": 10000
-                  }
-                }
-                """));
+    when(overwatchClient.getStatsSummary("Matt-1234", "competitive", "pc")).thenReturn(statsSummary);
+    when(overwatchClient.getCompletePlayerInfo("Matt-1234")).thenReturn(playerComplete);
     when(userRepository.save(user)).thenReturn(user);
 
     OverwatchProfileDto result =
@@ -110,6 +115,8 @@ class OverwatchServiceTest {
 
     List<OverwatchProfileDto> leaderboard = overwatchService.getLeaderboard();
 
-    assertEquals(List.of("best", "tieWinner", "tieLoser"), leaderboard.stream().map(OverwatchProfileDto::getUsername).toList());
+    assertEquals(
+        List.of("best", "tieWinner", "tieLoser"),
+        leaderboard.stream().map(OverwatchProfileDto::getUsername).toList());
   }
 }
