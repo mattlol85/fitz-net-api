@@ -54,16 +54,17 @@ public class OverwatchService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "playerId is required");
     }
 
-    String normalizedId = normalizeBattleTag(playerId);
+    String normalizedInput = normalizeBattleTag(playerId);
+    String internalId = overwatchClient.resolveInternalPlayerId(normalizedInput);
     User user = findUser(username);
 
-    OverwatchPlayerSummaryDto summary = overwatchClient.getPlayerSummary(normalizedId);
-    OverfastStatsSummaryResponseDto statsSummary = safeGetStatsSummary(normalizedId, gamemode, platform);
-    OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(normalizedId);
+    OverwatchPlayerSummaryDto summary = overwatchClient.getPlayerSummary(internalId);
+    OverfastStatsSummaryResponseDto statsSummary = safeGetStatsSummary(internalId, gamemode, platform);
+    OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(internalId);
 
     OverwatchStatsSnapshotDto stats = extractStats(statsSummary);
     CompetitiveRatings ratings = extractCompetitiveRatings(playerComplete);
-    PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, normalizedId);
+    PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, internalId, normalizedInput);
 
     user.setOverwatchPlayerId(snapshot.getPlayerId());
     user.setOverwatchBattleTag(snapshot.getBattleTag());
@@ -96,14 +97,16 @@ public class OverwatchService {
     if (user.getOverwatchPlayerId() == null || user.getOverwatchPlayerId().isBlank()) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No Overwatch profile linked to this account");
     }
-    return buildHistory(user.getOverwatchPlayerId(), user);
+    // Use stored internal ID directly; pass stored battletag for display
+    return buildHistory(user.getOverwatchPlayerId(), user.getOverwatchBattleTag(), user);
   }
 
   public OverwatchSeasonHistoryDto getHistoryForPlayer(String playerId) {
     if (playerId == null || playerId.isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "playerId is required");
     }
-    return buildHistory(playerId, null);
+    String normalizedInput = normalizeBattleTag(playerId);
+    return buildHistory(normalizedInput, normalizedInput, null);
   }
 
   public List<OverwatchProfileDto> getLeaderboard() {
@@ -121,13 +124,13 @@ public class OverwatchService {
 
   // ---- Private helpers ----
 
-  private OverwatchSeasonHistoryDto buildHistory(String playerId, User linkedUser) {
-    String normalizedId = normalizeBattleTag(playerId);
-    OverwatchPlayerSummaryDto summary = overwatchClient.getPlayerSummary(normalizedId);
-    OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(normalizedId);
+  private OverwatchSeasonHistoryDto buildHistory(String playerId, String displayBattleTag, User linkedUser) {
+    String internalId = overwatchClient.resolveInternalPlayerId(playerId);
+    OverwatchPlayerSummaryDto summary = overwatchClient.getPlayerSummary(internalId);
+    OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(internalId);
 
     CompetitiveRatings ratings = extractCompetitiveRatings(playerComplete);
-    PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, normalizedId);
+    PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, internalId, displayBattleTag);
     HistorySnapshot history = new HistorySnapshot(null, List.of(), List.of(), List.of());
 
     return OverwatchSeasonHistoryDto.builder()
@@ -150,19 +153,20 @@ public class OverwatchService {
   private static PlayerSnapshot extractPlayerSnapshot(
       OverfastPlayerCompleteDto playerComplete,
       OverwatchPlayerSummaryDto summary,
-      String requestedId) {
+      String internalId,
+      String battleTagInput) {
 
     OverfastSummaryDto completeSummary = playerComplete != null ? playerComplete.getSummary() : null;
 
     String displayName = (completeSummary != null && completeSummary.getUsername() != null)
         ? completeSummary.getUsername()
-        : (summary != null && summary.getName() != null ? summary.getName() : requestedId);
+        : (summary != null && summary.getUsername() != null ? summary.getUsername() : internalId);
 
     String avatarUrl = (completeSummary != null && completeSummary.getAvatar() != null)
         ? completeSummary.getAvatar()
         : (summary != null ? summary.getAvatar() : null);
 
-    return new PlayerSnapshot(requestedId, normalizeBattleTag(requestedId), displayName, avatarUrl);
+    return new PlayerSnapshot(internalId, battleTagInput, displayName, avatarUrl);
   }
 
   private static CompetitiveRatings extractCompetitiveRatings(OverfastPlayerCompleteDto playerComplete) {
@@ -203,9 +207,7 @@ public class OverwatchService {
     Integer deaths = totals != null ? totals.getDeaths() : null;
     Integer damage = totals != null ? totals.getDamage() : null;
     Integer healing = totals != null ? totals.getHealing() : null;
-    Integer gamesWon = general.getGamesWon() != null
-        ? general.getGamesWon()
-        : (totals != null ? totals.getWins() : null);
+    Integer gamesWon = general.getGamesWon();
     Double winrate = general.getWinrate();
     Double kda = general.getKda();
     Integer gamesPlayed = general.getGamesPlayed();
