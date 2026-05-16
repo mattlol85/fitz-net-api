@@ -5,11 +5,13 @@ import java.util.List;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSearchResultDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileRequestDto;
+import org.fitznet.fitznetapi.dto.overwatch.OverwatchSeasonHistoryDto;
 import org.fitznet.fitznetapi.service.OverwatchService;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -50,6 +52,16 @@ public class OverwatchController {
   @GetMapping("/leaderboard")
   public List<OverwatchProfileDto> leaderboard() {
     return overwatchService.getLeaderboard();
+  }
+
+  @GetMapping("/me/history")
+  public OverwatchSeasonHistoryDto myHistory(Authentication authentication) {
+    return overwatchService.getHistory(authentication.getName());
+  }
+
+  @GetMapping("/{playerId}/history")
+  public OverwatchSeasonHistoryDto history(@PathVariable String playerId) {
+    return overwatchService.getHistoryForPlayer(playerId);
   }
 
   private OverwatchProfileDto attachProfile(

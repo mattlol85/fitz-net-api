@@ -8,7 +8,7 @@ import lombok.Data;
 @Data
 public class OverwatchProfileRequestDto {
   @NotBlank
-  @JsonAlias({"playerId", "player_id"})
+  @JsonAlias({"playerId", "player_id", "battleTag", "battle_tag", "bnetString", "bnet_string"})
   @JsonProperty("playerId")
   private String playerId;
 

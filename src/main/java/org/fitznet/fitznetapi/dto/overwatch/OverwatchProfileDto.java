@@ -9,6 +9,7 @@ import lombok.Value;
 public class OverwatchProfileDto {
   String username;
   String playerId;
+  String battleTag;
   String displayName;
   String avatarUrl;
   Instant lastUpdatedAt;
@@ -20,4 +21,8 @@ public class OverwatchProfileDto {
   Integer deaths;
   Integer damage;
   Integer healing;
+
+  Integer dpsRating;
+  Integer tankRating;
+  Integer healsRating;
 }

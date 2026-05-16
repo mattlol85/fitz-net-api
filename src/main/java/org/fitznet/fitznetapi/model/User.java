@@ -28,6 +28,7 @@ public class User {
   String email;
 
   String overwatchPlayerId;
+  String overwatchBattleTag;
   String overwatchDisplayName;
   String overwatchAvatarUrl;
   Instant overwatchLastUpdatedAt;
@@ -39,4 +40,9 @@ public class User {
   Integer overwatchDeaths;
   Integer overwatchDamage;
   Integer overwatchHealing;
+
+  // Role-specific competitive ratings
+  Integer overwatchDpsRating;
+  Integer overwatchTankRating;
+  Integer overwatchHealsRating;
 }
