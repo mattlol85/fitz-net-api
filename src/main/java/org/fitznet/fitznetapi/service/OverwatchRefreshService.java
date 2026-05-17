@@ -25,7 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
  * Records rating snapshots and tracks all-time peaks for each role.
  *
  * <p>The cron job processes users sequentially with a configurable inter-request delay to stay
- * safely within OverFast''s adaptive Blizzard throttle (2.0s initial delay). OverFast returns 503
+ * safely within OverFast's adaptive Blizzard throttle (2.0s initial delay). OverFast returns 503
  * when Blizzard is rate-limiting; these are handled gracefully by skipping the user and retrying
  * on the next cron cycle.
  */
