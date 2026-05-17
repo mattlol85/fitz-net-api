@@ -48,8 +48,7 @@ class OverwatchServiceTest {
     User user = User.builder().username("matt").email("matt@example.com").build();
 
     OverwatchPlayerSummaryDto summary = new OverwatchPlayerSummaryDto();
-    summary.setPlayerId("Matt-1234");
-    summary.setName("Matt#1234");
+    summary.setUsername("Matt#1234");
     summary.setAvatar("https://example.com/avatar.png");
 
     OverfastStatsTotalsDto totals = new OverfastStatsTotalsDto();
@@ -68,6 +67,7 @@ class OverwatchServiceTest {
     OverfastPlayerCompleteDto playerComplete = new OverfastPlayerCompleteDto();
 
     when(userRepository.findByUsername("matt")).thenReturn(user);
+    when(overwatchClient.resolveInternalPlayerId("Matt-1234")).thenReturn("Matt-1234");
     when(overwatchClient.getPlayerSummary("Matt-1234")).thenReturn(summary);
     when(overwatchClient.getStatsSummary("Matt-1234", "competitive", "pc")).thenReturn(statsSummary);
     when(overwatchClient.getCompletePlayerInfo("Matt-1234")).thenReturn(playerComplete);
