@@ -7,4 +7,7 @@ public class CompetitiveRatings {
   Integer dpsRating;
   Integer tankRating;
   Integer healsRating;
+  String dpsRankIcon;
+  String tankRankIcon;
+  String healsRankIcon;
 }

@@ -2,6 +2,7 @@ package org.fitznet.fitznetapi.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,7 +15,9 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastStatsTotalsDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
+import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,8 +27,9 @@ import org.mockito.MockitoAnnotations;
 class OverwatchServiceTest {
 
   @Mock private OverwatchClient overwatchClient;
-
   @Mock private UserRepository userRepository;
+  @Mock private OverwatchRatingSnapshotRepository snapshotRepository;
+  @Mock private OverwatchRefreshService refreshService;
 
   private AutoCloseable mocks;
   private OverwatchService overwatchService;
@@ -33,7 +37,8 @@ class OverwatchServiceTest {
   @BeforeEach
   void setUp() {
     mocks = MockitoAnnotations.openMocks(this);
-    overwatchService = new OverwatchService(overwatchClient, userRepository);
+    overwatchService = new OverwatchService(overwatchClient, userRepository, snapshotRepository, refreshService);
+    when(refreshService.getCurrentSeason()).thenReturn("Season 16");
   }
 
   @AfterEach
@@ -45,7 +50,7 @@ class OverwatchServiceTest {
 
   @Test
   void attachProfileShouldValidateAndSaveOverwatchStats() {
-    User user = User.builder().username("matt").email("matt@example.com").build();
+    User user = User.builder().id("user-1").username("matt").email("matt@example.com").build();
 
     OverwatchPlayerSummaryDto summary = new OverwatchPlayerSummaryDto();
     summary.setUsername("Matt#1234");
@@ -63,7 +68,6 @@ class OverwatchServiceTest {
     OverfastStatsSummaryResponseDto statsSummary = new OverfastStatsSummaryResponseDto();
     statsSummary.setGeneral(general);
 
-    // getCompletePlayerInfo returns an empty DTO (no competitive data)
     OverfastPlayerCompleteDto playerComplete = new OverfastPlayerCompleteDto();
 
     when(userRepository.findByUsername("matt")).thenReturn(user);
@@ -71,7 +75,7 @@ class OverwatchServiceTest {
     when(overwatchClient.getPlayerSummary("Matt-1234")).thenReturn(summary);
     when(overwatchClient.getStatsSummary("Matt-1234", "competitive", "pc")).thenReturn(statsSummary);
     when(overwatchClient.getCompletePlayerInfo("Matt-1234")).thenReturn(playerComplete);
-    when(userRepository.save(user)).thenReturn(user);
+    when(userRepository.save(any(User.class))).thenReturn(user);
 
     OverwatchProfileDto result =
         overwatchService.attachProfile("matt", "Matt-1234", "competitive", "pc");
@@ -83,7 +87,7 @@ class OverwatchServiceTest {
     assertEquals(50.0, result.getWinrate());
     assertEquals(3.0, result.getKda());
     assertNotNull(result.getLastUpdatedAt());
-    verify(userRepository, times(1)).save(user);
+    verify(refreshService, times(1)).saveSnapshotAndUpdatePeaks(any(User.class), any(CompetitiveRatings.class));
   }
 
   @Test

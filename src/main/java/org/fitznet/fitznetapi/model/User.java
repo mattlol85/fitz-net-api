@@ -45,4 +45,9 @@ public class User {
   Integer overwatchDpsRating;
   Integer overwatchTankRating;
   Integer overwatchHealsRating;
+
+  // All-time peak competitive ratings
+  Integer overwatchDpsPeakRating;
+  Integer overwatchTankPeakRating;
+  Integer overwatchHealsPeakRating;
 }
