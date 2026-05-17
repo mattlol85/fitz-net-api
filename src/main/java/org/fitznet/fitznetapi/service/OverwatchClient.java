@@ -9,6 +9,7 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSearchResponseDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSearchResultDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -99,6 +100,7 @@ public class OverwatchClient {
     return resolvedId;
   }
 
+  @Cacheable(value = "overwatchPlayerSummary", key = "#playerId")
   public OverwatchPlayerSummaryDto getPlayerSummary(String playerId) {
     log.info("[Overfast] Fetching player summary for playerId='{}'", playerId);
     OverwatchPlayerSummaryDto summary =
@@ -157,6 +159,7 @@ public class OverwatchClient {
    * Get all player data (summary + career stats). Uses the /players/{player_id} endpoint per the
    * Overfast API spec (v4+). The former /players/{player_id}/complete no longer exists.
    */
+  @Cacheable(value = "overwatchPlayerComplete", key = "#playerId")
   public OverfastPlayerCompleteDto getCompletePlayerInfo(String playerId) {
     log.info("[Overfast] Fetching complete player info for playerId='{}'", playerId);
     try {

@@ -25,4 +25,8 @@ public class OverwatchProfileDto {
   Integer dpsRating;
   Integer tankRating;
   Integer healsRating;
+
+  Integer dpsPeakRating;
+  Integer tankPeakRating;
+  Integer healsPeakRating;
 }

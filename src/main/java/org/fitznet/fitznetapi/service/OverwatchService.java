@@ -3,13 +3,9 @@ package org.fitznet.fitznetapi.service;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
-import org.fitznet.fitznetapi.dto.overfast.OverfastCompetitiveDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastGeneralStatsDto;
-import org.fitznet.fitznetapi.dto.overfast.OverfastPlatformRanksDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerCompleteDto;
-import org.fitznet.fitznetapi.dto.overfast.OverfastRoleRankDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastStatsSummaryResponseDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastStatsTotalsDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
@@ -17,11 +13,13 @@ import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSearchResultDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchSeasonHistoryDto;
+import org.fitznet.fitznetapi.dto.overwatch.OverwatchSeasonHistoryPointDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchStatsSnapshotDto;
+import org.fitznet.fitznetapi.model.OverwatchRatingSnapshot;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
-import org.fitznet.fitznetapi.service.overwatch.HistorySnapshot;
 import org.fitznet.fitznetapi.service.overwatch.PlayerSnapshot;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -33,10 +31,18 @@ public class OverwatchService {
 
   private final OverwatchClient overwatchClient;
   private final UserRepository userRepository;
+  private final OverwatchRatingSnapshotRepository snapshotRepository;
+  private final OverwatchRefreshService refreshService;
 
-  public OverwatchService(OverwatchClient overwatchClient, UserRepository userRepository) {
+  public OverwatchService(
+      OverwatchClient overwatchClient,
+      UserRepository userRepository,
+      OverwatchRatingSnapshotRepository snapshotRepository,
+      OverwatchRefreshService refreshService) {
     this.overwatchClient = overwatchClient;
     this.userRepository = userRepository;
+    this.snapshotRepository = snapshotRepository;
+    this.refreshService = refreshService;
   }
 
   // ---- Public API ----
@@ -63,7 +69,7 @@ public class OverwatchService {
     OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(internalId);
 
     OverwatchStatsSnapshotDto stats = extractStats(statsSummary);
-    CompetitiveRatings ratings = extractCompetitiveRatings(playerComplete);
+    CompetitiveRatings ratings = OverwatchRefreshService.extractCompetitiveRatings(playerComplete);
     PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, internalId, normalizedInput);
 
     user.setOverwatchPlayerId(snapshot.getPlayerId());
@@ -79,11 +85,15 @@ public class OverwatchService {
     user.setOverwatchDeaths(stats.getDeaths());
     user.setOverwatchDamage(stats.getDamage());
     user.setOverwatchHealing(stats.getHealing());
-    user.setOverwatchDpsRating(ratings.getDpsRating());
-    user.setOverwatchTankRating(ratings.getTankRating());
-    user.setOverwatchHealsRating(ratings.getHealsRating());
 
+    // Save first so user has an ID for the snapshot
     User saved = userRepository.save(user);
+
+    // Record snapshot and update peaks via shared refresh service
+    refreshService.saveSnapshotAndUpdatePeaks(saved, ratings);
+
+    // Re-fetch to get the persisted peak values
+    saved = findUser(username);
     log.info("Attached Overwatch player {} to user {}", saved.getOverwatchPlayerId(), username);
     return toProfileDto(saved);
   }
@@ -97,7 +107,6 @@ public class OverwatchService {
     if (user.getOverwatchPlayerId() == null || user.getOverwatchPlayerId().isBlank()) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No Overwatch profile linked to this account");
     }
-    // Use stored internal ID directly; pass stored battletag for display
     return buildHistory(user.getOverwatchPlayerId(), user.getOverwatchBattleTag(), user);
   }
 
@@ -129,9 +138,84 @@ public class OverwatchService {
     OverwatchPlayerSummaryDto summary = overwatchClient.getPlayerSummary(internalId);
     OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(internalId);
 
-    CompetitiveRatings ratings = extractCompetitiveRatings(playerComplete);
+    CompetitiveRatings ratings = OverwatchRefreshService.extractCompetitiveRatings(playerComplete);
     PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, internalId, displayBattleTag);
-    HistorySnapshot history = new HistorySnapshot(null, List.of(), List.of(), List.of());
+
+    String season = refreshService.getCurrentSeason();
+    List<OverwatchSeasonHistoryPointDto> dpsHistory = List.of();
+    List<OverwatchSeasonHistoryPointDto> tankHistory = List.of();
+    List<OverwatchSeasonHistoryPointDto> healsHistory = List.of();
+    List<OverwatchSeasonHistoryPointDto> dpsSeasonHistory = List.of();
+    List<OverwatchSeasonHistoryPointDto> tankSeasonHistory = List.of();
+    List<OverwatchSeasonHistoryPointDto> healsSeasonHistory = List.of();
+
+    if (linkedUser != null && linkedUser.getId() != null) {
+      List<OverwatchRatingSnapshot> snapshots =
+          snapshotRepository.findByUserIdAndSeasonOrderByRecordedAtAsc(linkedUser.getId(), season);
+
+      dpsHistory = snapshots.stream()
+          .filter(s -> s.getDpsRating() != null)
+          .map(s -> OverwatchSeasonHistoryPointDto.builder()
+              .label(formatSnapshotLabel(s))
+              .rating(s.getDpsRating())
+              .recordedAt(s.getRecordedAt())
+              .build())
+          .toList();
+
+      tankHistory = snapshots.stream()
+          .filter(s -> s.getTankRating() != null)
+          .map(s -> OverwatchSeasonHistoryPointDto.builder()
+              .label(formatSnapshotLabel(s))
+              .rating(s.getTankRating())
+              .recordedAt(s.getRecordedAt())
+              .build())
+          .toList();
+
+      healsHistory = snapshots.stream()
+          .filter(s -> s.getHealsRating() != null)
+          .map(s -> OverwatchSeasonHistoryPointDto.builder()
+              .label(formatSnapshotLabel(s))
+              .rating(s.getHealsRating())
+              .recordedAt(s.getRecordedAt())
+              .build())
+          .toList();
+
+      // Cross-season history: latest snapshot per season, ordered chronologically
+      List<OverwatchRatingSnapshot> allSnapshots =
+          snapshotRepository.findByUserIdOrderByRecordedAtAsc(linkedUser.getId());
+
+      java.util.Map<String, OverwatchRatingSnapshot> latestBySeason = new java.util.LinkedHashMap<>();
+      for (OverwatchRatingSnapshot s : allSnapshots) {
+        if (s.getSeason() != null) latestBySeason.put(s.getSeason(), s);
+      }
+
+      dpsSeasonHistory = latestBySeason.values().stream()
+          .filter(s -> s.getDpsRating() != null)
+          .map(s -> OverwatchSeasonHistoryPointDto.builder()
+              .label(s.getSeason())
+              .rating(s.getDpsRating())
+              .recordedAt(s.getRecordedAt())
+              .build())
+          .toList();
+
+      tankSeasonHistory = latestBySeason.values().stream()
+          .filter(s -> s.getTankRating() != null)
+          .map(s -> OverwatchSeasonHistoryPointDto.builder()
+              .label(s.getSeason())
+              .rating(s.getTankRating())
+              .recordedAt(s.getRecordedAt())
+              .build())
+          .toList();
+
+      healsSeasonHistory = latestBySeason.values().stream()
+          .filter(s -> s.getHealsRating() != null)
+          .map(s -> OverwatchSeasonHistoryPointDto.builder()
+              .label(s.getSeason())
+              .rating(s.getHealsRating())
+              .recordedAt(s.getRecordedAt())
+              .build())
+          .toList();
+    }
 
     return OverwatchSeasonHistoryDto.builder()
         .username(linkedUser != null ? linkedUser.getUsername() : snapshot.getDisplayName())
@@ -139,15 +223,30 @@ public class OverwatchService {
         .battleTag(snapshot.getBattleTag())
         .displayName(snapshot.getDisplayName())
         .avatarUrl(snapshot.getAvatarUrl())
-        .currentSeason(history.getCurrentSeason())
+        .currentSeason(season)
         .dpsRating(ratings.getDpsRating())
         .tankRating(ratings.getTankRating())
         .healsRating(ratings.getHealsRating())
-        .dpsHistory(history.getDpsHistory())
-        .tankHistory(history.getTankHistory())
-        .healsHistory(history.getHealsHistory())
+        .dpsPeakRating(linkedUser != null ? linkedUser.getOverwatchDpsPeakRating() : null)
+        .tankPeakRating(linkedUser != null ? linkedUser.getOverwatchTankPeakRating() : null)
+        .healsPeakRating(linkedUser != null ? linkedUser.getOverwatchHealsPeakRating() : null)
+        .dpsRankIcon(ratings.getDpsRankIcon())
+        .tankRankIcon(ratings.getTankRankIcon())
+        .healsRankIcon(ratings.getHealsRankIcon())
+        .dpsHistory(dpsHistory)
+        .tankHistory(tankHistory)
+        .healsHistory(healsHistory)
+        .dpsSeasonHistory(dpsSeasonHistory)
+        .tankSeasonHistory(tankSeasonHistory)
+        .healsSeasonHistory(healsSeasonHistory)
         .rankedMatches(List.of())
         .build();
+  }
+
+  private static String formatSnapshotLabel(OverwatchRatingSnapshot snapshot) {
+    if (snapshot.getRecordedAt() == null) return "Unknown";
+    java.time.ZonedDateTime zdt = snapshot.getRecordedAt().atZone(java.time.ZoneOffset.UTC);
+    return String.format("%s %d", zdt.getMonth().getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ROOT), zdt.getDayOfMonth());
   }
 
   private static PlayerSnapshot extractPlayerSnapshot(
@@ -167,29 +266,6 @@ public class OverwatchService {
         : (summary != null ? summary.getAvatar() : null);
 
     return new PlayerSnapshot(internalId, battleTagInput, displayName, avatarUrl);
-  }
-
-  private static CompetitiveRatings extractCompetitiveRatings(OverfastPlayerCompleteDto playerComplete) {
-
-    OverfastSummaryDto completeSummary = playerComplete != null ? playerComplete.getSummary() : null;
-    OverfastCompetitiveDto competitive = completeSummary != null ? completeSummary.getCompetitive() : null;
-
-    if (competitive == null) {
-      return new CompetitiveRatings(null, null, null);
-    }
-
-    OverfastPlatformRanksDto platform = competitive.getPc() != null
-        ? competitive.getPc()
-        : competitive.getConsole();
-
-    if (platform == null) {
-      return new CompetitiveRatings(null, null, null);
-    }
-
-    return new CompetitiveRatings(
-        rankToApproximateSr(platform.getDamage()),
-        rankToApproximateSr(platform.getTank()),
-        rankToApproximateSr(platform.getSupport()));
   }
 
   private static OverwatchStatsSnapshotDto extractStats(OverfastStatsSummaryResponseDto statsSummary) {
@@ -229,29 +305,6 @@ public class OverwatchService {
         .damage(damage)
         .healing(healing)
         .build();
-  }
-
-  /**
-   * Converts an Overwatch 2 competitive rank (division + tier) to an approximate numeric SR.
-   * Each division spans 500 points; tier 5 is the lowest and tier 1 is the highest within a division.
-   */
-  private static Integer rankToApproximateSr(OverfastRoleRankDto rank) {
-    if (rank == null || rank.getDivision() == null) {
-      return null;
-    }
-    int base = switch (rank.getDivision().toLowerCase(Locale.ROOT)) {
-      case "bronze"      -> 0;
-      case "silver"      -> 500;
-      case "gold"        -> 1000;
-      case "platinum"    -> 1500;
-      case "diamond"     -> 2000;
-      case "master"      -> 2500;
-      case "grandmaster" -> 3000;
-      case "champion"    -> 3500;
-      default            -> 0;
-    };
-    int tierOffset = rank.getTier() != null ? (5 - rank.getTier()) * 100 : 0;
-    return base + tierOffset;
   }
 
   private OverfastStatsSummaryResponseDto safeGetStatsSummary(
@@ -304,6 +357,9 @@ public class OverwatchService {
         .dpsRating(user.getOverwatchDpsRating())
         .tankRating(user.getOverwatchTankRating())
         .healsRating(user.getOverwatchHealsRating())
+        .dpsPeakRating(user.getOverwatchDpsPeakRating())
+        .tankPeakRating(user.getOverwatchTankPeakRating())
+        .healsPeakRating(user.getOverwatchHealsPeakRating())
         .build();
   }
 
@@ -312,4 +368,3 @@ public class OverwatchService {
     return value.trim().replace('#', '-').replaceAll("\\s+", "");
   }
 }
-

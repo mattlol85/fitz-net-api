@@ -16,9 +16,18 @@ public class OverwatchSeasonHistoryDto {
   Integer dpsRating;
   Integer tankRating;
   Integer healsRating;
+  Integer dpsPeakRating;
+  Integer tankPeakRating;
+  Integer healsPeakRating;
+  String dpsRankIcon;
+  String tankRankIcon;
+  String healsRankIcon;
   List<OverwatchSeasonHistoryPointDto> dpsHistory;
   List<OverwatchSeasonHistoryPointDto> tankHistory;
   List<OverwatchSeasonHistoryPointDto> healsHistory;
+  List<OverwatchSeasonHistoryPointDto> dpsSeasonHistory;
+  List<OverwatchSeasonHistoryPointDto> tankSeasonHistory;
+  List<OverwatchSeasonHistoryPointDto> healsSeasonHistory;
   List<OverwatchRankedMatchDto> rankedMatches;
 }
 
