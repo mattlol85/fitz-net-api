@@ -73,7 +73,7 @@ class OverwatchRefreshServiceTest {
   @Test
   void saveSnapshotShouldPersistSnapshotForCurrentSeason() {
     User user = User.builder().id("u1").username("matt").build();
-    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2600, 2900);
+    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2600, 2900, null, null, null);
 
     when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -99,7 +99,7 @@ class OverwatchRefreshServiceTest {
         .overwatchTankPeakRating(2600)
         .overwatchHealsPeakRating(2900)
         .build();
-    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2550, 2950);
+    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2550, 2950, null, null, null);
 
     when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
@@ -116,7 +116,7 @@ class OverwatchRefreshServiceTest {
   @Test
   void saveSnapshotShouldSetPeakWhenNoPreviousPeakExists() {
     User user = User.builder().id("u1").username("matt").build();
-    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2600, null);
+    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2600, null, null, null, null);
 
     when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
