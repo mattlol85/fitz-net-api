@@ -2,11 +2,14 @@ package org.fitznet.fitznetapi.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import org.fitznet.fitznetapi.dto.overfast.OverfastGeneralStatsDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerCompleteDto;
@@ -14,10 +17,13 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastStatsSummaryResponseDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastStatsTotalsDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
+import org.fitznet.fitznetapi.dto.overwatch.OverwatchSeasonHistoryDto;
+import org.fitznet.fitznetapi.model.OverwatchRatingSnapshot;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
+import org.fitznet.fitznetapi.service.overwatch.HeroStats;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,5 +128,114 @@ class OverwatchServiceTest {
     assertEquals(
         List.of("best", "tieWinner", "tieLoser"),
         leaderboard.stream().map(OverwatchProfileDto::getUsername).toList());
+  }
+
+  // ---- getHistory / topHeroHistories ----
+
+  @Test
+  void getHistoryShouldBuildTopHeroHistoriesFromSnapshotsOrderedByTimePlayed() {
+    User user = User.builder()
+        .id("u1").username("matt")
+        .overwatchPlayerId("Matt-1733")
+        .build();
+
+    List<HeroStats> heroStats = List.of(
+        HeroStats.builder().heroKey("mercy").timePlayed(3600L).winPercentage(65.0).gamesWon(10).build(),
+        HeroStats.builder().heroKey("moira").timePlayed(1800L).winPercentage(50.0).gamesWon(5).build(),
+        HeroStats.builder().heroKey("kiriko").timePlayed(900L).winPercentage(40.0).gamesWon(3).build()
+    );
+
+    OverwatchRatingSnapshot snap = OverwatchRatingSnapshot.builder()
+        .userId("u1")
+        .season("Season 16")
+        .recordedAt(Instant.parse("2025-01-01T12:00:00Z"))
+        .dpsRating(2300)
+        .heroStats(heroStats)
+        .build();
+
+    when(userRepository.findByUsername("matt")).thenReturn(user);
+    when(overwatchClient.resolveInternalPlayerId("Matt-1733")).thenReturn("Matt-1733");
+    when(overwatchClient.getPlayerSummary("Matt-1733")).thenReturn(new OverwatchPlayerSummaryDto());
+    when(overwatchClient.getCompletePlayerInfo("Matt-1733")).thenReturn(new OverfastPlayerCompleteDto());
+    when(snapshotRepository.findByUserIdAndSeasonOrderByRecordedAtAsc("u1", "Season 16"))
+        .thenReturn(List.of(snap));
+    when(snapshotRepository.findByUserIdOrderByRecordedAtAsc("u1"))
+        .thenReturn(List.of(snap));
+
+    OverwatchSeasonHistoryDto history = overwatchService.getHistory("matt");
+
+    assertNotNull(history.getTopHeroHistories());
+    assertEquals(3, history.getTopHeroHistories().size());
+
+    // Sorted by descending time played: mercy > moira > kiriko
+    assertEquals("mercy", history.getTopHeroHistories().get(0).getHeroKey());
+    assertEquals("Mercy", history.getTopHeroHistories().get(0).getHeroName());
+    assertEquals("moira", history.getTopHeroHistories().get(1).getHeroKey());
+    assertEquals("kiriko", history.getTopHeroHistories().get(2).getHeroKey());
+
+    // Each timeline entry carries win rate and a label
+    assertEquals(1, history.getTopHeroHistories().get(0).getHistory().size());
+    assertEquals(65.0, history.getTopHeroHistories().get(0).getHistory().get(0).getWinRate());
+    assertNotNull(history.getTopHeroHistories().get(0).getHistory().get(0).getLabel());
+  }
+
+  @Test
+  void getHistoryShouldReturnEmptyTopHeroHistoriesWhenNoSnapshotsExist() {
+    User user = User.builder()
+        .id("u1").username("matt")
+        .overwatchPlayerId("Matt-1733")
+        .build();
+
+    when(userRepository.findByUsername("matt")).thenReturn(user);
+    when(overwatchClient.resolveInternalPlayerId("Matt-1733")).thenReturn("Matt-1733");
+    when(overwatchClient.getPlayerSummary("Matt-1733")).thenReturn(new OverwatchPlayerSummaryDto());
+    when(overwatchClient.getCompletePlayerInfo("Matt-1733")).thenReturn(new OverfastPlayerCompleteDto());
+    when(snapshotRepository.findByUserIdAndSeasonOrderByRecordedAtAsc("u1", "Season 16"))
+        .thenReturn(List.of());
+    when(snapshotRepository.findByUserIdOrderByRecordedAtAsc("u1"))
+        .thenReturn(List.of());
+
+    OverwatchSeasonHistoryDto history = overwatchService.getHistory("matt");
+
+    assertNotNull(history.getTopHeroHistories());
+    assertTrue(history.getTopHeroHistories().isEmpty());
+  }
+
+  @Test
+  void getHistoryShouldLimitToTop3HeroesByTimePlayed() {
+    User user = User.builder()
+        .id("u1").username("matt")
+        .overwatchPlayerId("Matt-1733")
+        .build();
+
+    List<HeroStats> heroStats = List.of(
+        HeroStats.builder().heroKey("mercy").timePlayed(5000L).winPercentage(60.0).build(),
+        HeroStats.builder().heroKey("moira").timePlayed(4000L).winPercentage(55.0).build(),
+        HeroStats.builder().heroKey("kiriko").timePlayed(3000L).winPercentage(50.0).build(),
+        HeroStats.builder().heroKey("ana").timePlayed(2000L).winPercentage(45.0).build(),
+        HeroStats.builder().heroKey("lucio").timePlayed(1000L).winPercentage(40.0).build()
+    );
+
+    OverwatchRatingSnapshot snap = OverwatchRatingSnapshot.builder()
+        .userId("u1").season("Season 16")
+        .recordedAt(Instant.parse("2025-01-01T12:00:00Z"))
+        .heroStats(heroStats)
+        .build();
+
+    when(userRepository.findByUsername("matt")).thenReturn(user);
+    when(overwatchClient.resolveInternalPlayerId("Matt-1733")).thenReturn("Matt-1733");
+    when(overwatchClient.getPlayerSummary("Matt-1733")).thenReturn(new OverwatchPlayerSummaryDto());
+    when(overwatchClient.getCompletePlayerInfo("Matt-1733")).thenReturn(new OverfastPlayerCompleteDto());
+    when(snapshotRepository.findByUserIdAndSeasonOrderByRecordedAtAsc("u1", "Season 16"))
+        .thenReturn(List.of(snap));
+    when(snapshotRepository.findByUserIdOrderByRecordedAtAsc("u1"))
+        .thenReturn(List.of(snap));
+
+    OverwatchSeasonHistoryDto history = overwatchService.getHistory("matt");
+
+    assertEquals(3, history.getTopHeroHistories().size());
+    assertEquals(List.of("mercy", "moira", "kiriko"),
+        history.getTopHeroHistories().stream()
+            .map(h -> h.getHeroKey()).toList());
   }
 }

@@ -15,8 +15,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.fitznet.fitznetapi.dto.overfast.OverfastCompetitiveDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastGamemodeStatsDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastHeroComparisonDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastHeroValueDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastHeroesComparisonsDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastPlatformRanksDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastPlatformStatsDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerCompleteDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerStatsWrapDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastRoleRankDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
 import org.fitznet.fitznetapi.model.OverwatchRatingSnapshot;
@@ -24,6 +30,7 @@ import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
+import org.fitznet.fitznetapi.service.overwatch.HeroStats;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -228,5 +235,133 @@ class OverwatchRefreshServiceTest {
     assertFalse(OverwatchRefreshService.isOverfastRateLimited(
         new ResponseStatusException(HttpStatus.BAD_GATEWAY)));
     assertFalse(OverwatchRefreshService.isOverfastRateLimited(new RuntimeException("Timeout")));
+  }
+
+  // ---- extractHeroStats (via extractCompetitiveRatings) ----
+
+  @Test
+  void extractCompetitiveRatingsShouldParseHeroStatsFromHeroesComparisons() {
+    OverfastHeroValueDto mercyTime = new OverfastHeroValueDto();
+    mercyTime.setHero("mercy");
+    mercyTime.setValue(3600.0);
+
+    OverfastHeroValueDto kirikoTime = new OverfastHeroValueDto();
+    kirikoTime.setHero("kiriko");
+    kirikoTime.setValue(1800.0);
+
+    OverfastHeroComparisonDto timePlayed = new OverfastHeroComparisonDto();
+    timePlayed.setValues(List.of(mercyTime, kirikoTime));
+
+    OverfastHeroValueDto mercyWin = new OverfastHeroValueDto();
+    mercyWin.setHero("mercy");
+    mercyWin.setValue(65.5);
+
+    OverfastHeroComparisonDto winPct = new OverfastHeroComparisonDto();
+    winPct.setValues(List.of(mercyWin));
+
+    OverfastHeroValueDto mercyWon = new OverfastHeroValueDto();
+    mercyWon.setHero("mercy");
+    mercyWon.setValue(10.0);
+
+    OverfastHeroComparisonDto gamesWon = new OverfastHeroComparisonDto();
+    gamesWon.setValues(List.of(mercyWon));
+
+    OverfastHeroesComparisonsDto hc = new OverfastHeroesComparisonsDto();
+    hc.setTimePlayed(timePlayed);
+    hc.setWinPercentage(winPct);
+    hc.setGamesWon(gamesWon);
+
+    OverfastGamemodeStatsDto gamemodeStats = new OverfastGamemodeStatsDto();
+    gamemodeStats.setHeroesComparisons(hc);
+
+    OverfastPlatformStatsDto platformStats = new OverfastPlatformStatsDto();
+    platformStats.setCompetitive(gamemodeStats);
+
+    OverfastPlayerStatsWrapDto statsWrap = new OverfastPlayerStatsWrapDto();
+    statsWrap.setPc(platformStats);
+
+    OverfastPlayerCompleteDto playerComplete = new OverfastPlayerCompleteDto();
+    playerComplete.setStats(statsWrap);
+
+    CompetitiveRatings ratings = OverwatchRefreshService.extractCompetitiveRatings(playerComplete);
+    List<HeroStats> heroStats = ratings.getHeroStats();
+
+    assertEquals(2, heroStats.size());
+
+    HeroStats mercy = heroStats.stream()
+        .filter(h -> "mercy".equals(h.getHeroKey())).findFirst().orElseThrow();
+    assertEquals(3600L, mercy.getTimePlayed());
+    assertEquals(65.5, mercy.getWinPercentage());
+    assertEquals(10, mercy.getGamesWon());
+
+    HeroStats kiriko = heroStats.stream()
+        .filter(h -> "kiriko".equals(h.getHeroKey())).findFirst().orElseThrow();
+    assertEquals(1800L, kiriko.getTimePlayed());
+    assertNull(kiriko.getWinPercentage()); // not present in winPct map
+  }
+
+  @Test
+  void extractCompetitiveRatingsShouldExcludeHeroesWithZeroTimePlayed() {
+    OverfastHeroValueDto zeroTime = new OverfastHeroValueDto();
+    zeroTime.setHero("tracer");
+    zeroTime.setValue(0.0);
+
+    OverfastHeroValueDto nullHero = new OverfastHeroValueDto();
+    nullHero.setHero(null);
+    nullHero.setValue(100.0);
+
+    OverfastHeroComparisonDto timePlayed = new OverfastHeroComparisonDto();
+    timePlayed.setValues(List.of(zeroTime, nullHero));
+
+    OverfastHeroesComparisonsDto hc = new OverfastHeroesComparisonsDto();
+    hc.setTimePlayed(timePlayed);
+
+    OverfastGamemodeStatsDto gamemodeStats = new OverfastGamemodeStatsDto();
+    gamemodeStats.setHeroesComparisons(hc);
+
+    OverfastPlatformStatsDto platformStats = new OverfastPlatformStatsDto();
+    platformStats.setCompetitive(gamemodeStats);
+
+    OverfastPlayerStatsWrapDto statsWrap = new OverfastPlayerStatsWrapDto();
+    statsWrap.setPc(platformStats);
+
+    OverfastPlayerCompleteDto playerComplete = new OverfastPlayerCompleteDto();
+    playerComplete.setStats(statsWrap);
+
+    CompetitiveRatings ratings = OverwatchRefreshService.extractCompetitiveRatings(playerComplete);
+
+    assertTrue(ratings.getHeroStats().isEmpty());
+  }
+
+  @Test
+  void extractCompetitiveRatingsShouldReturnEmptyHeroStatsWhenNoStatsPresent() {
+    OverfastPlayerCompleteDto playerComplete = new OverfastPlayerCompleteDto();
+
+    CompetitiveRatings ratings = OverwatchRefreshService.extractCompetitiveRatings(playerComplete);
+
+    assertNotNull(ratings.getHeroStats());
+    assertTrue(ratings.getHeroStats().isEmpty());
+  }
+
+  @Test
+  void saveSnapshotShouldIncludeHeroStatsInPersistedSnapshot() {
+    User user = User.builder().id("u1").username("matt").build();
+    List<HeroStats> heroStats = List.of(
+        HeroStats.builder().heroKey("mercy").timePlayed(3600L).winPercentage(65.0).gamesWon(10).build()
+    );
+    CompetitiveRatings ratings = new CompetitiveRatings(2800, 2600, 2900, null, null, null, heroStats);
+
+    when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    refreshService.saveSnapshotAndUpdatePeaks(user, ratings);
+
+    ArgumentCaptor<OverwatchRatingSnapshot> captor = ArgumentCaptor.forClass(OverwatchRatingSnapshot.class);
+    verify(snapshotRepository).save(captor.capture());
+    OverwatchRatingSnapshot saved = captor.getValue();
+
+    assertNotNull(saved.getHeroStats());
+    assertEquals(1, saved.getHeroStats().size());
+    assertEquals("mercy", saved.getHeroStats().get(0).getHeroKey());
   }
 }
