@@ -1,12 +1,14 @@
 package org.fitznet.fitznetapi.model;
 
 import java.time.Instant;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.fitznet.fitznetapi.service.overwatch.HeroStats;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -29,4 +31,6 @@ public class OverwatchRatingSnapshot {
   Integer dpsRating;
   Integer tankRating;
   Integer healsRating;
+
+  List<HeroStats> heroStats;
 }

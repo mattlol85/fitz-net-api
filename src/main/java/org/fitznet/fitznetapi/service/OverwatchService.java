@@ -9,6 +9,8 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerCompleteDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastStatsSummaryResponseDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastStatsTotalsDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
+import org.fitznet.fitznetapi.dto.overwatch.HeroDataPointDto;
+import org.fitznet.fitznetapi.dto.overwatch.HeroTimelineDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSearchResultDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
@@ -20,6 +22,7 @@ import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
+import org.fitznet.fitznetapi.service.overwatch.HeroStats;
 import org.fitznet.fitznetapi.service.overwatch.PlayerSnapshot;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -148,6 +151,7 @@ public class OverwatchService {
     List<OverwatchSeasonHistoryPointDto> dpsSeasonHistory = List.of();
     List<OverwatchSeasonHistoryPointDto> tankSeasonHistory = List.of();
     List<OverwatchSeasonHistoryPointDto> healsSeasonHistory = List.of();
+    List<HeroTimelineDto> topHeroHistories = List.of();
 
     if (linkedUser != null && linkedUser.getId() != null) {
       List<OverwatchRatingSnapshot> snapshots =
@@ -215,6 +219,41 @@ public class OverwatchService {
               .recordedAt(s.getRecordedAt())
               .build())
           .toList();
+
+      // Top 3 heroes by time played — win rate history over time
+      List<HeroStats> latestHeroStats = allSnapshots.stream()
+          .filter(s -> s.getHeroStats() != null && !s.getHeroStats().isEmpty())
+          .reduce((a, b) -> b)
+          .map(OverwatchRatingSnapshot::getHeroStats)
+          .orElse(List.of());
+
+      List<String> top3HeroKeys = latestHeroStats.stream()
+          .sorted(Comparator.comparingLong(
+              (HeroStats h) -> h.getTimePlayed() != null ? h.getTimePlayed() : 0L).reversed())
+          .limit(3)
+          .map(HeroStats::getHeroKey)
+          .toList();
+
+      topHeroHistories = top3HeroKeys.stream()
+          .map(heroKey -> {
+            List<HeroDataPointDto> heroHistory = allSnapshots.stream()
+                .filter(s -> s.getHeroStats() != null)
+                .flatMap(s -> s.getHeroStats().stream()
+                    .filter(h -> heroKey.equals(h.getHeroKey()) && h.getWinPercentage() != null)
+                    .map(h -> HeroDataPointDto.builder()
+                        .label(formatSnapshotLabel(s))
+                        .winRate(h.getWinPercentage())
+                        .recordedAt(s.getRecordedAt())
+                        .build()))
+                .toList();
+            String heroName = heroKey.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + heroKey.substring(1);
+            return HeroTimelineDto.builder()
+                .heroKey(heroKey)
+                .heroName(heroName)
+                .history(heroHistory)
+                .build();
+          })
+          .toList();
     }
 
     return OverwatchSeasonHistoryDto.builder()
@@ -239,6 +278,7 @@ public class OverwatchService {
         .dpsSeasonHistory(dpsSeasonHistory)
         .tankSeasonHistory(tankSeasonHistory)
         .healsSeasonHistory(healsSeasonHistory)
+        .topHeroHistories(topHeroHistories)
         .rankedMatches(List.of())
         .build();
   }

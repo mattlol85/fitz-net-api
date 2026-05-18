@@ -5,8 +5,7 @@ import lombok.Data;
 
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class OverfastPlayerCompleteDto {
-  private OverfastSummaryDto summary;
-  private OverfastPlayerStatsWrapDto stats;
+public class OverfastPlayerStatsWrapDto {
+  private OverfastPlatformStatsDto pc;
+  private OverfastPlatformStatsDto console;
 }
-

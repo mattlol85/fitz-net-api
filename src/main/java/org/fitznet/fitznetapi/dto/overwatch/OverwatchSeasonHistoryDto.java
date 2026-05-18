@@ -3,6 +3,7 @@ package org.fitznet.fitznetapi.dto.overwatch;
 import java.util.List;
 import lombok.Builder;
 import lombok.Value;
+import org.fitznet.fitznetapi.dto.overwatch.HeroTimelineDto;
 
 @Value
 @Builder
@@ -28,6 +29,7 @@ public class OverwatchSeasonHistoryDto {
   List<OverwatchSeasonHistoryPointDto> dpsSeasonHistory;
   List<OverwatchSeasonHistoryPointDto> tankSeasonHistory;
   List<OverwatchSeasonHistoryPointDto> healsSeasonHistory;
+  List<HeroTimelineDto> topHeroHistories;
   List<OverwatchRankedMatchDto> rankedMatches;
 }
 

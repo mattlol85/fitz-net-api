@@ -2,11 +2,18 @@ package org.fitznet.fitznetapi.service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.fitznet.fitznetapi.dto.overfast.OverfastCompetitiveDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastHeroComparisonDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastHeroesComparisonsDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastHeroValueDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastPlatformRanksDto;
+import org.fitznet.fitznetapi.dto.overfast.OverfastPlatformStatsDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastPlayerCompleteDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastRoleRankDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
@@ -15,6 +22,7 @@ import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
+import org.fitznet.fitznetapi.service.overwatch.HeroStats;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -132,6 +140,7 @@ public class OverwatchRefreshService {
         .dpsRating(ratings.getDpsRating())
         .tankRating(ratings.getTankRating())
         .healsRating(ratings.getHealsRating())
+        .heroStats(ratings.getHeroStats())
         .build();
     snapshotRepository.save(snapshot);
 
@@ -192,8 +201,10 @@ public class OverwatchRefreshService {
     OverfastSummaryDto completeSummary = playerComplete != null ? playerComplete.getSummary() : null;
     OverfastCompetitiveDto competitive = completeSummary != null ? completeSummary.getCompetitive() : null;
 
+    List<HeroStats> heroStats = extractHeroStats(playerComplete);
+
     if (competitive == null) {
-      return new CompetitiveRatings(null, null, null, null, null, null);
+      return new CompetitiveRatings(null, null, null, null, null, null, heroStats);
     }
 
     OverfastPlatformRanksDto platform = competitive.getPc() != null
@@ -201,7 +212,7 @@ public class OverwatchRefreshService {
         : competitive.getConsole();
 
     if (platform == null) {
-      return new CompetitiveRatings(null, null, null, null, null, null);
+      return new CompetitiveRatings(null, null, null, null, null, null, heroStats);
     }
 
     OverfastRoleRankDto damage = platform.getDamage();
@@ -214,7 +225,53 @@ public class OverwatchRefreshService {
         rankToApproximateSr(support),
         damage  != null ? damage.getRankIcon()  : null,
         tank    != null ? tank.getRankIcon()    : null,
-        support != null ? support.getRankIcon() : null);
+        support != null ? support.getRankIcon() : null,
+        heroStats);
+  }
+
+  private static List<HeroStats> extractHeroStats(OverfastPlayerCompleteDto playerComplete) {
+    if (playerComplete == null || playerComplete.getStats() == null) return List.of();
+
+    OverfastPlatformStatsDto platformStats = playerComplete.getStats().getPc() != null
+        ? playerComplete.getStats().getPc()
+        : playerComplete.getStats().getConsole();
+    if (platformStats == null || platformStats.getCompetitive() == null) return List.of();
+
+    OverfastHeroesComparisonsDto hc = platformStats.getCompetitive().getHeroesComparisons();
+    if (hc == null) return List.of();
+
+    // Build lookup maps for games_won and win_percentage by hero key
+    Map<String, Double> wonByHero = toHeroMap(hc.getGamesWon());
+    Map<String, Double> winPctByHero = toHeroMap(hc.getWinPercentage());
+
+    OverfastHeroComparisonDto timePlayed = hc.getTimePlayed();
+    if (timePlayed == null || timePlayed.getValues() == null) return List.of();
+
+    List<HeroStats> result = new ArrayList<>();
+    for (OverfastHeroValueDto entry : timePlayed.getValues()) {
+      if (entry.getHero() == null || entry.getValue() == null) continue;
+      long seconds = entry.getValue().longValue();
+      if (seconds <= 0) continue;
+      Double winPct = winPctByHero.get(entry.getHero());
+      Double gamesWonRaw = wonByHero.get(entry.getHero());
+      result.add(HeroStats.builder()
+          .heroKey(entry.getHero())
+          .timePlayed(seconds)
+          .gamesWon(gamesWonRaw != null ? gamesWonRaw.intValue() : null)
+          .winPercentage(winPct)
+          .build());
+    }
+    return result;
+  }
+
+  private static Map<String, Double> toHeroMap(OverfastHeroComparisonDto comparison) {
+    if (comparison == null || comparison.getValues() == null) return Map.of();
+    return comparison.getValues().stream()
+        .filter(v -> v.getHero() != null && v.getValue() != null)
+        .collect(Collectors.toMap(
+            OverfastHeroValueDto::getHero,
+            OverfastHeroValueDto::getValue,
+            (a, b) -> a));
   }
 
   /**
