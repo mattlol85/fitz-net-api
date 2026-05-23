@@ -54,6 +54,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/actuator/health", "/actuator/info", "/info", "/error")
                     .permitAll()
+                    .requestMatchers("/ws-board/**")
+                    .permitAll()
                     .requestMatchers("/user/read", "/user/readAll", "/user/update", "/user/delete")
                     .authenticated()
                     .requestMatchers("/overwatch/**")
@@ -69,9 +71,11 @@ public class SecurityConfig {
     CorsConfiguration configuration = new CorsConfiguration();
     configuration.setAllowedOrigins(
         List.of(
+            "https://fitznet.org",
             "https://fitznet.doomdns.org",
             "https://api.fitznet.doomdns.org",
-            "https://gamerbell.fitznet.doomdns.org"));
+            "https://gamerbell.fitznet.doomdns.org",
+            "http://localhost:3000"));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));
     configuration.setExposedHeaders(List.of("Authorization", "Content-Type"));
