@@ -20,6 +20,7 @@ public class WebSocketStompConfig implements WebSocketMessageBrokerConfigurer {
         .addEndpoint("/ws-board")
         .setAllowedOrigins(
             "https://fitznet.org",
+            "https://www.fitznet.org",
             "https://fitznet.doomdns.org",
             "https://api.fitznet.doomdns.org",
             "http://localhost:3000");
@@ -36,4 +37,5 @@ public class WebSocketStompConfig implements WebSocketMessageBrokerConfigurer {
     registration.interceptors(liveBoardChannelInterceptor);
   }
 }
+
 

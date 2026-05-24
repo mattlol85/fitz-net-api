@@ -72,6 +72,7 @@ public class SecurityConfig {
     configuration.setAllowedOrigins(
         List.of(
             "https://fitznet.org",
+            "https://www.fitznet.org",
             "https://fitznet.doomdns.org",
             "https://api.fitznet.doomdns.org",
             "https://gamerbell.fitznet.doomdns.org",

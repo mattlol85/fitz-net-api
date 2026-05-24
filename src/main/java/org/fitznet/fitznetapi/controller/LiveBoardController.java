@@ -75,6 +75,8 @@ public class LiveBoardController {
     String username = boardState.removeSession(sessionId);
 
     if (username == null) {
+      // Session was not registered with the Live Board — belongs to a different STOMP endpoint
+      log.trace("STOMP disconnect for untracked session {} — not a Live Board session", sessionId);
       return;
     }
 
@@ -88,4 +90,5 @@ public class LiveBoardController {
     }
   }
 }
+
 
