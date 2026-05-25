@@ -27,6 +27,8 @@ public class User {
   @JsonIgnore String password;
   String email;
 
+  String boardColor;
+
   String overwatchPlayerId;
   String overwatchBattleTag;
   String overwatchDisplayName;

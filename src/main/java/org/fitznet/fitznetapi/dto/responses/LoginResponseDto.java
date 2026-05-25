@@ -13,5 +13,6 @@ public class LoginResponseDto {
   String username;
   String email;
   String token;
+  String boardColor;
 }
 
