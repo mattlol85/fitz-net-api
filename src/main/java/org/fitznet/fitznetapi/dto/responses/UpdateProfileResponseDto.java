@@ -12,5 +12,6 @@ public class UpdateProfileResponseDto {
   String message;
   String username;
   String email;
+  String boardColor;
 }
 

@@ -70,7 +70,7 @@ class LiveBoardControllerTest {
 
   @Test
   void cursorShouldBroadcastWithUsernameFromPrincipal() {
-    CursorMoveDto move = new CursorMoveDto(null, 0.3, 0.7);
+    CursorMoveDto move = new CursorMoveDto(null, 0.3, 0.7, false, "");
 
     controller.cursor(move, principal("alice"));
 

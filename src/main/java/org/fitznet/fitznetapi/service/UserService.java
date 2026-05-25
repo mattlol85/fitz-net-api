@@ -1,6 +1,7 @@
 package org.fitznet.fitznetapi.service;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.model.User;
@@ -26,7 +27,20 @@ public class UserService {
     log.info("Saving user... - {}", user.getUsername());
     // Hash the password before saving
     user.setPassword(passwordEncoder.encode(user.getPassword()));
+    // Assign a board color if not already set
+    if (user.getBoardColor() == null || user.getBoardColor().isBlank()) {
+      user.setBoardColor(generateBoardColor());
+    }
     return userRepository.save(user);
+  }
+
+  /**
+   * Generates a vibrant HSL color that is visible on both light and dark backgrounds.
+   * Saturation 72%, lightness 50% ensures rich color without being too pale or too dark.
+   */
+  private String generateBoardColor() {
+    int hue = ThreadLocalRandom.current().nextInt(360);
+    return String.format("hsl(%d,72%%,50%%)", hue);
   }
 
   public void deleteUser(String username) {
