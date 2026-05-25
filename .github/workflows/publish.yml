@@ -218,7 +218,7 @@ jobs:
         run: |
           NOTES_FILE=$(mktemp)
           {
-            echo "## $EMOJI Release"
+            echo "## $EMOJI $INCREMENT Release"
             echo "Manual release for $NEW_VERSION"
             echo ""
             echo "- Version increment: $INCREMENT"
@@ -227,7 +227,7 @@ jobs:
             echo "### 📦 Artifact"
             echo "- $JAR_NAME"
           } > "$NOTES_FILE"
-          gh release create "$NEW_VERSION" --title "$EMOJI Release $NEW_VERSION" --notes-file "$NOTES_FILE" "$JAR_PATH"
+          gh release create "$NEW_VERSION" --title "$EMOJI $INCREMENT Release $NEW_VERSION" --notes-file "$NOTES_FILE" "$JAR_PATH"
 
   docker:
     name: 🐳 Build & Push Docker Image
