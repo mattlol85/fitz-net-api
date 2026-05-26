@@ -1,5 +1,6 @@
 package org.fitznet.fitznetapi.dto.liveboard;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,10 +16,10 @@ import java.util.UUID;
 public class BoardMessageDto {
   private String id;
   private String username;
-  private double xRatio;
-  private double yRatio;
+  @JsonProperty("xRatio") private double xRatio;
+  @JsonProperty("yRatio") private double yRatio;
   private String content;
-  private Instant postedAt;
+  @JsonProperty("postedAt") private Instant postedAt;
 
   public static BoardMessageDto create(String username, double xRatio, double yRatio, String content) {
     return BoardMessageDto.builder()
