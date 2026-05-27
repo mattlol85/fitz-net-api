@@ -1,8 +1,10 @@
 package org.fitznet.fitznetapi.config;
 
+import java.util.Arrays;
 import java.util.List;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -21,6 +23,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
   @Autowired private JwtAuthenticationFilter jwtAuthenticationFilter;
+
+  @Value("${cors.allowed-origins}")
+  private String[] allowedOrigins;
 
   @Bean
   public PasswordEncoder passwordEncoder() {
@@ -67,11 +72,7 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOrigins(
-        List.of(
-            "https://fitznet.doomdns.org",
-            "https://api.fitznet.doomdns.org",
-            "https://gamerbell.fitznet.doomdns.org"));
+    configuration.setAllowedOrigins(Arrays.asList(allowedOrigins));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));
     configuration.setExposedHeaders(List.of("Authorization", "Content-Type"));
