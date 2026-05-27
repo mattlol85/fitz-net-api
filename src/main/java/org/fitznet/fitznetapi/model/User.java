@@ -2,12 +2,12 @@ package org.fitznet.fitznetapi.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.Instant;
-import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import lombok.AccessLevel;
 import lombok.experimental.FieldDefaults;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -26,6 +26,8 @@ public class User {
   String username;
   @JsonIgnore String password;
   String email;
+
+  String boardColor;
 
   String overwatchPlayerId;
   String overwatchBattleTag;

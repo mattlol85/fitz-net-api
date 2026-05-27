@@ -115,7 +115,7 @@ public class UserController {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
     }
 
-    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail());
+    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail(), updatedUser.getBoardColor());
   }
 
   @PostMapping("/user/login")
@@ -127,7 +127,7 @@ public class UserController {
     if (isValid) {
       User user = userService.readByUsername(loginRequest.getUsername());
       String token = jwtUtil.generateToken(user.getUsername());
-      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail(), token);
+      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail(), token, user.getBoardColor());
     } else {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
     }

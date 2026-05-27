@@ -293,4 +293,49 @@ class UserControllerTest {
     assertTrue(response.isSuccess());
     verify(userService, times(1)).updateUser(any(UpdateUserRequestDto.class));
   }
+
+  @Test
+  void loginShouldIncludeBoardColorInResponse() {
+    LoginRequestDto loginRequest = new LoginRequestDto("mattlol85", "testPassword123");
+    User user = User.builder()
+        .username("mattlol85")
+        .email("test@example.com")
+        .password("$2a$10$hashedPassword")
+        .boardColor("hsl(200,72%,50%)")
+        .build();
+
+    when(userService.verifyPassword("mattlol85", "testPassword123")).thenReturn(true);
+    when(userService.readByUsername("mattlol85")).thenReturn(user);
+    when(jwtUtil.generateToken("mattlol85")).thenReturn("mock-jwt-token");
+
+    LoginResponseDto response = userController.login(loginRequest);
+
+    assertTrue(response.isSuccess());
+    assertEquals("hsl(200,72%,50%)", response.getBoardColor(),
+        "Login response must include the user's boardColor");
+  }
+
+  @Test
+  void updateProfileShouldIncludeBoardColorInResponse() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateProfileRequestDto profileRequest =
+        new UpdateProfileRequestDto("mattlol85", "test@example.com", null);
+
+    User updatedUser = User.builder()
+        .username("mattlol85")
+        .email("test@example.com")
+        .boardColor("hsl(42,72%,50%)")
+        .build();
+
+    when(userService.updateUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
+
+    UpdateProfileResponseDto response = userController.updateProfile(profileRequest);
+
+    assertTrue(response.isSuccess());
+    assertEquals("hsl(42,72%,50%)", response.getBoardColor(),
+        "Update profile response must include the user's boardColor");
+  }
 }

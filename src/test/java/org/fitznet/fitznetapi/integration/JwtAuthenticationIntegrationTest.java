@@ -34,6 +34,8 @@ class JwtAuthenticationIntegrationTest {
   @Autowired private JwtUtil jwtUtil;
 
   private static final String ALLOWED_ORIGIN = "https://fitznet.doomdns.org";
+  private static final String FITZNET_ORG_ORIGIN = "https://fitznet.org";
+  private static final String LOCALHOST_ORIGIN = "http://localhost:3000";
 
   private String validToken;
 
@@ -244,5 +246,27 @@ class JwtAuthenticationIntegrationTest {
                 .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
         .andExpect(status().isOk())
         .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN));
+  }
+
+  @Test
+  void fitznetOrgShouldBeInCorsAllowlist() throws Exception {
+    mockMvc
+        .perform(
+            get("/actuator/info")
+                .header("Origin", FITZNET_ORG_ORIGIN)
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", FITZNET_ORG_ORIGIN));
+  }
+
+  @Test
+  void localhostShouldBeInCorsAllowlist() throws Exception {
+    mockMvc
+        .perform(
+            get("/actuator/info")
+                .header("Origin", LOCALHOST_ORIGIN)
+                .contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", LOCALHOST_ORIGIN));
   }
 }

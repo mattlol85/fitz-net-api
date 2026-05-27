@@ -231,4 +231,62 @@ class UserServiceTest {
     assertEquals("mattlol85", users.getFirst().getUsername());
     verify(userRepository, times(1)).findAll();
   }
+
+  @Test
+  void saveUserShouldAssignBoardColorWhenNotSet() {
+    User user = User.builder()
+        .username("newuser")
+        .email("new@example.com")
+        .password("plainPass")
+        .build(); // boardColor is null
+
+    when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
+    when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    User saved = userService.saveUser(user);
+
+    assertNotNull(saved.getBoardColor(), "boardColor should be auto-assigned");
+    assertTrue(saved.getBoardColor().startsWith("hsl("),
+        "boardColor should be an hsl() value, got: " + saved.getBoardColor());
+  }
+
+  @Test
+  void saveUserShouldPreserveExistingBoardColor() {
+    User user = User.builder()
+        .username("existing")
+        .email("existing@example.com")
+        .password("plainPass")
+        .boardColor("hsl(42,72%,50%)")
+        .build();
+
+    when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
+    when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    User saved = userService.saveUser(user);
+
+    assertEquals("hsl(42,72%,50%)", saved.getBoardColor(),
+        "Existing boardColor should not be overwritten");
+  }
+
+  @Test
+  void generatedBoardColorShouldBeWithinExpectedHslRange() {
+    // Run multiple times to validate the format is always valid hsl()
+    for (int i = 0; i < 20; i++) {
+      User user = User.builder()
+          .username("user" + i)
+          .email("u" + i + "@example.com")
+          .password("pass")
+          .build();
+
+      when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
+      when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+      User saved = userService.saveUser(user);
+      String color = saved.getBoardColor();
+
+      assertNotNull(color);
+      assertTrue(color.matches("hsl\\(\\d+,72%,50%\\)"),
+          "Color '" + color + "' should match hsl(H,72%,50%)");
+    }
+  }
 }
