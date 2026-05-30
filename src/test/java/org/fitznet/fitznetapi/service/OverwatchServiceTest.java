@@ -15,6 +15,7 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastStatsTotalsDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchPlayerSummaryDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchProfileDto;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.model.overwatch.OverwatchProfile;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
@@ -95,23 +96,20 @@ class OverwatchServiceTest {
     User best =
         User.builder()
             .username("best")
-            .overwatchPlayerId("Best-1")
-            .overwatchWinrate(65.0)
-            .overwatchGamesWon(20)
+            .overwatch(OverwatchProfile.builder()
+                .playerId("Best-1").winrate(65.0).gamesWon(20).build())
             .build();
     User tieWinner =
         User.builder()
             .username("tieWinner")
-            .overwatchPlayerId("Tie-1")
-            .overwatchWinrate(55.0)
-            .overwatchGamesWon(30)
+            .overwatch(OverwatchProfile.builder()
+                .playerId("Tie-1").winrate(55.0).gamesWon(30).build())
             .build();
     User tieLoser =
         User.builder()
             .username("tieLoser")
-            .overwatchPlayerId("Tie-2")
-            .overwatchWinrate(55.0)
-            .overwatchGamesWon(10)
+            .overwatch(OverwatchProfile.builder()
+                .playerId("Tie-2").winrate(55.0).gamesWon(10).build())
             .build();
     User unattached = User.builder().username("nope").build();
 

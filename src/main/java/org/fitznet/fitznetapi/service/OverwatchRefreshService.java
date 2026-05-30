@@ -12,6 +12,7 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastRoleRankDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
 import org.fitznet.fitznetapi.model.OverwatchRatingSnapshot;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.model.overwatch.OverwatchProfile;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
@@ -60,7 +61,9 @@ public class OverwatchRefreshService {
   @Scheduled(cron = "${overwatch.refresh.cron:0 */30 * * * *}")
   public void refreshAllLinkedUsers() {
     List<User> linked = userRepository.findAll().stream()
-        .filter(u -> u.getOverwatchPlayerId() != null && !u.getOverwatchPlayerId().isBlank())
+        .filter(u -> u.getOverwatch() != null
+            && u.getOverwatch().getPlayerId() != null
+            && !u.getOverwatch().getPlayerId().isBlank())
         .toList();
 
     if (linked.isEmpty()) {
@@ -81,7 +84,7 @@ public class OverwatchRefreshService {
       }
 
       try {
-        CompetitiveRatings ratings = fetchCurrentRatings(user.getOverwatchPlayerId());
+        CompetitiveRatings ratings = fetchCurrentRatings(user.getOverwatch().getPlayerId());
         saveSnapshotAndUpdatePeaks(user, ratings);
         refreshed++;
       } catch (Exception e) {
@@ -135,31 +138,36 @@ public class OverwatchRefreshService {
         .build();
     snapshotRepository.save(snapshot);
 
+    OverwatchProfile profile = user.getOverwatch();
+    if (profile == null) {
+      profile = new OverwatchProfile();
+      user.setOverwatch(profile);
+    }
     boolean peakUpdated = false;
 
     if (ratings.getDpsRating() != null
-        && (user.getOverwatchDpsPeakRating() == null
-            || ratings.getDpsRating() > user.getOverwatchDpsPeakRating())) {
-      user.setOverwatchDpsPeakRating(ratings.getDpsRating());
+        && (profile.getDpsPeakRating() == null
+            || ratings.getDpsRating() > profile.getDpsPeakRating())) {
+      profile.setDpsPeakRating(ratings.getDpsRating());
       peakUpdated = true;
     }
     if (ratings.getTankRating() != null
-        && (user.getOverwatchTankPeakRating() == null
-            || ratings.getTankRating() > user.getOverwatchTankPeakRating())) {
-      user.setOverwatchTankPeakRating(ratings.getTankRating());
+        && (profile.getTankPeakRating() == null
+            || ratings.getTankRating() > profile.getTankPeakRating())) {
+      profile.setTankPeakRating(ratings.getTankRating());
       peakUpdated = true;
     }
     if (ratings.getHealsRating() != null
-        && (user.getOverwatchHealsPeakRating() == null
-            || ratings.getHealsRating() > user.getOverwatchHealsPeakRating())) {
-      user.setOverwatchHealsPeakRating(ratings.getHealsRating());
+        && (profile.getHealsPeakRating() == null
+            || ratings.getHealsRating() > profile.getHealsPeakRating())) {
+      profile.setHealsPeakRating(ratings.getHealsRating());
       peakUpdated = true;
     }
 
-    user.setOverwatchDpsRating(ratings.getDpsRating());
-    user.setOverwatchTankRating(ratings.getTankRating());
-    user.setOverwatchHealsRating(ratings.getHealsRating());
-    user.setOverwatchLastUpdatedAt(now);
+    profile.setDpsRating(ratings.getDpsRating());
+    profile.setTankRating(ratings.getTankRating());
+    profile.setHealsRating(ratings.getHealsRating());
+    profile.setLastUpdatedAt(now);
     userRepository.save(user);
 
     if (peakUpdated) {
@@ -175,9 +183,10 @@ public class OverwatchRefreshService {
   // ---- Private helpers ----
 
   private boolean isWithinCooldown(User user) {
-    if (user.getOverwatchLastUpdatedAt() == null) return false;
+    Instant lastUpdatedAt = user.getOverwatch() != null ? user.getOverwatch().getLastUpdatedAt() : null;
+    if (lastUpdatedAt == null) return false;
     Instant cutoff = Instant.now().minus(cooldownMinutes, ChronoUnit.MINUTES);
-    return user.getOverwatchLastUpdatedAt().isAfter(cutoff);
+    return lastUpdatedAt.isAfter(cutoff);
   }
 
   static boolean isOverfastRateLimited(Exception e) {

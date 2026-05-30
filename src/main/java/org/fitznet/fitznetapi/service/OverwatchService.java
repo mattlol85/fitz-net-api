@@ -17,6 +17,7 @@ import org.fitznet.fitznetapi.dto.overwatch.OverwatchSeasonHistoryPointDto;
 import org.fitznet.fitznetapi.dto.overwatch.OverwatchStatsSnapshotDto;
 import org.fitznet.fitznetapi.model.OverwatchRatingSnapshot;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.model.overwatch.OverwatchProfile;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
@@ -72,29 +73,28 @@ public class OverwatchService {
     CompetitiveRatings ratings = OverwatchRefreshService.extractCompetitiveRatings(playerComplete);
     PlayerSnapshot snapshot = extractPlayerSnapshot(playerComplete, summary, internalId, normalizedInput);
 
-    user.setOverwatchPlayerId(snapshot.getPlayerId());
-    user.setOverwatchBattleTag(snapshot.getBattleTag());
-    user.setOverwatchDisplayName(snapshot.getDisplayName());
-    user.setOverwatchAvatarUrl(snapshot.getAvatarUrl());
-    user.setOverwatchLastUpdatedAt(Instant.now());
-    user.setOverwatchGamesWon(stats.getGamesWon());
-    user.setOverwatchGamesPlayed(stats.getGamesPlayed());
-    user.setOverwatchWinrate(stats.getWinrate());
-    user.setOverwatchKda(stats.getKda());
-    user.setOverwatchEliminations(stats.getEliminations());
-    user.setOverwatchDeaths(stats.getDeaths());
-    user.setOverwatchDamage(stats.getDamage());
-    user.setOverwatchHealing(stats.getHealing());
+    OverwatchProfile profile = ensureProfile(user);
+    profile.setPlayerId(snapshot.getPlayerId());
+    profile.setBattleTag(snapshot.getBattleTag());
+    profile.setDisplayName(snapshot.getDisplayName());
+    profile.setAvatarUrl(snapshot.getAvatarUrl());
+    profile.setLastUpdatedAt(Instant.now());
+    profile.setGamesWon(stats.getGamesWon());
+    profile.setGamesPlayed(stats.getGamesPlayed());
+    profile.setWinrate(stats.getWinrate());
+    profile.setKda(stats.getKda());
+    profile.setEliminations(stats.getEliminations());
+    profile.setDeaths(stats.getDeaths());
+    profile.setDamage(stats.getDamage());
+    profile.setHealing(stats.getHealing());
 
-    // Save first so user has an ID for the snapshot
+    // Save first so the user has an ID for the snapshot row.
     User saved = userRepository.save(user);
 
-    // Record snapshot and update peaks via shared refresh service
+    // Record the snapshot and update peaks on the embedded profile; persists in a single save.
     refreshService.saveSnapshotAndUpdatePeaks(saved, ratings);
 
-    // Re-fetch to get the persisted peak values
-    saved = findUser(username);
-    log.info("Attached Overwatch player {} to user {}", saved.getOverwatchPlayerId(), username);
+    log.info("Attached Overwatch player {} to user {}", saved.getOverwatch().getPlayerId(), username);
     return toProfileDto(saved);
   }
 
@@ -104,10 +104,11 @@ public class OverwatchService {
 
   public OverwatchSeasonHistoryDto getHistory(String username) {
     User user = findUser(username);
-    if (user.getOverwatchPlayerId() == null || user.getOverwatchPlayerId().isBlank()) {
+    OverwatchProfile profile = user.getOverwatch();
+    if (profile == null || profile.getPlayerId() == null || profile.getPlayerId().isBlank()) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No Overwatch profile linked to this account");
     }
-    return buildHistory(user.getOverwatchPlayerId(), user.getOverwatchBattleTag(), user);
+    return buildHistory(profile.getPlayerId(), profile.getBattleTag(), user);
   }
 
   public OverwatchSeasonHistoryDto getHistoryForPlayer(String playerId) {
@@ -120,12 +121,12 @@ public class OverwatchService {
 
   public List<OverwatchProfileDto> getLeaderboard() {
     return userRepository.findAll().stream()
-        .filter(u -> u.getOverwatchPlayerId() != null)
+        .filter(u -> u.getOverwatch() != null && u.getOverwatch().getPlayerId() != null)
         .sorted(
             Comparator.comparing(
                     OverwatchService::leaderboardScore, Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(
-                    u -> defaultInteger(u.getOverwatchGamesWon()), Comparator.reverseOrder())
+                    u -> defaultInteger(u.getOverwatch().getGamesWon()), Comparator.reverseOrder())
                 .thenComparing(User::getUsername))
         .map(this::toProfileDto)
         .toList();
@@ -134,6 +135,7 @@ public class OverwatchService {
   // ---- Private helpers ----
 
   private OverwatchSeasonHistoryDto buildHistory(String playerId, String displayBattleTag, User linkedUser) {
+    OverwatchProfile linkedProfile = linkedUser != null ? linkedUser.getOverwatch() : null;
     String internalId = overwatchClient.resolveInternalPlayerId(playerId);
     OverwatchPlayerSummaryDto summary = overwatchClient.getPlayerSummary(internalId);
     OverfastPlayerCompleteDto playerComplete = overwatchClient.getCompletePlayerInfo(internalId);
@@ -227,9 +229,9 @@ public class OverwatchService {
         .dpsRating(ratings.getDpsRating())
         .tankRating(ratings.getTankRating())
         .healsRating(ratings.getHealsRating())
-        .dpsPeakRating(linkedUser != null ? linkedUser.getOverwatchDpsPeakRating() : null)
-        .tankPeakRating(linkedUser != null ? linkedUser.getOverwatchTankPeakRating() : null)
-        .healsPeakRating(linkedUser != null ? linkedUser.getOverwatchHealsPeakRating() : null)
+        .dpsPeakRating(linkedProfile != null ? linkedProfile.getDpsPeakRating() : null)
+        .tankPeakRating(linkedProfile != null ? linkedProfile.getTankPeakRating() : null)
+        .healsPeakRating(linkedProfile != null ? linkedProfile.getHealsPeakRating() : null)
         .dpsRankIcon(ratings.getDpsRankIcon())
         .tankRankIcon(ratings.getTankRankIcon())
         .healsRankIcon(ratings.getHealsRankIcon())
@@ -318,12 +320,13 @@ public class OverwatchService {
   }
 
   private static Double leaderboardScore(User user) {
+    OverwatchProfile profile = user.getOverwatch();
     double sum = 0;
     int count = 0;
-    if (user.getOverwatchDpsRating() != null)   { sum += user.getOverwatchDpsRating();   count++; }
-    if (user.getOverwatchTankRating() != null)  { sum += user.getOverwatchTankRating();  count++; }
-    if (user.getOverwatchHealsRating() != null) { sum += user.getOverwatchHealsRating(); count++; }
-    return count > 0 ? sum / count : user.getOverwatchWinrate();
+    if (profile.getDpsRating() != null)   { sum += profile.getDpsRating();   count++; }
+    if (profile.getTankRating() != null)  { sum += profile.getTankRating();  count++; }
+    if (profile.getHealsRating() != null) { sum += profile.getHealsRating(); count++; }
+    return count > 0 ? sum / count : profile.getWinrate();
   }
 
   private static Integer defaultInteger(Integer v) {
@@ -339,28 +342,43 @@ public class OverwatchService {
   }
 
   private OverwatchProfileDto toProfileDto(User user) {
+    OverwatchProfile profile = user.getOverwatch();
+    if (profile == null) {
+      // Unlinked account: return a DTO carrying only the username.
+      return OverwatchProfileDto.builder().username(user.getUsername()).build();
+    }
     return OverwatchProfileDto.builder()
         .username(user.getUsername())
-        .playerId(user.getOverwatchPlayerId())
-        .battleTag(user.getOverwatchBattleTag())
-        .displayName(user.getOverwatchDisplayName())
-        .avatarUrl(user.getOverwatchAvatarUrl())
-        .lastUpdatedAt(user.getOverwatchLastUpdatedAt())
-        .gamesWon(user.getOverwatchGamesWon())
-        .gamesPlayed(user.getOverwatchGamesPlayed())
-        .winrate(user.getOverwatchWinrate())
-        .kda(user.getOverwatchKda())
-        .eliminations(user.getOverwatchEliminations())
-        .deaths(user.getOverwatchDeaths())
-        .damage(user.getOverwatchDamage())
-        .healing(user.getOverwatchHealing())
-        .dpsRating(user.getOverwatchDpsRating())
-        .tankRating(user.getOverwatchTankRating())
-        .healsRating(user.getOverwatchHealsRating())
-        .dpsPeakRating(user.getOverwatchDpsPeakRating())
-        .tankPeakRating(user.getOverwatchTankPeakRating())
-        .healsPeakRating(user.getOverwatchHealsPeakRating())
+        .playerId(profile.getPlayerId())
+        .battleTag(profile.getBattleTag())
+        .displayName(profile.getDisplayName())
+        .avatarUrl(profile.getAvatarUrl())
+        .lastUpdatedAt(profile.getLastUpdatedAt())
+        .gamesWon(profile.getGamesWon())
+        .gamesPlayed(profile.getGamesPlayed())
+        .winrate(profile.getWinrate())
+        .kda(profile.getKda())
+        .eliminations(profile.getEliminations())
+        .deaths(profile.getDeaths())
+        .damage(profile.getDamage())
+        .healing(profile.getHealing())
+        .dpsRating(profile.getDpsRating())
+        .tankRating(profile.getTankRating())
+        .healsRating(profile.getHealsRating())
+        .dpsPeakRating(profile.getDpsPeakRating())
+        .tankPeakRating(profile.getTankPeakRating())
+        .healsPeakRating(profile.getHealsPeakRating())
         .build();
+  }
+
+  /** Returns the user's embedded Overwatch profile, creating and attaching it if absent. */
+  private static OverwatchProfile ensureProfile(User user) {
+    OverwatchProfile profile = user.getOverwatch();
+    if (profile == null) {
+      profile = new OverwatchProfile();
+      user.setOverwatch(profile);
+    }
+    return profile;
   }
 
   private static String normalizeBattleTag(String value) {

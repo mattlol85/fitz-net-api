@@ -21,6 +21,7 @@ import org.fitznet.fitznetapi.dto.overfast.OverfastRoleRankDto;
 import org.fitznet.fitznetapi.dto.overfast.OverfastSummaryDto;
 import org.fitznet.fitznetapi.model.OverwatchRatingSnapshot;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.model.overwatch.OverwatchProfile;
 import org.fitznet.fitznetapi.repository.OverwatchRatingSnapshotRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.overwatch.CompetitiveRatings;
@@ -95,9 +96,11 @@ class OverwatchRefreshServiceTest {
   @Test
   void saveSnapshotShouldUpdatePeakWhenCurrentRatingExceedsPrevious() {
     User user = User.builder().id("u1").username("matt")
-        .overwatchDpsPeakRating(2700)
-        .overwatchTankPeakRating(2600)
-        .overwatchHealsPeakRating(2900)
+        .overwatch(OverwatchProfile.builder()
+            .dpsPeakRating(2700)
+            .tankPeakRating(2600)
+            .healsPeakRating(2900)
+            .build())
         .build();
     CompetitiveRatings ratings = new CompetitiveRatings(2800, 2550, 2950, null, null, null);
 
@@ -107,10 +110,10 @@ class OverwatchRefreshServiceTest {
 
     refreshService.saveSnapshotAndUpdatePeaks(user, ratings);
 
-    User savedUser = userCaptor.getValue();
-    assertEquals(2800, savedUser.getOverwatchDpsPeakRating()); // updated (2800 > 2700)
-    assertEquals(2600, savedUser.getOverwatchTankPeakRating()); // unchanged (2550 < 2600)
-    assertEquals(2950, savedUser.getOverwatchHealsPeakRating()); // updated (2950 > 2900)
+    OverwatchProfile saved = userCaptor.getValue().getOverwatch();
+    assertEquals(2800, saved.getDpsPeakRating()); // updated (2800 > 2700)
+    assertEquals(2600, saved.getTankPeakRating()); // unchanged (2550 < 2600)
+    assertEquals(2950, saved.getHealsPeakRating()); // updated (2950 > 2900)
   }
 
   @Test
@@ -124,10 +127,10 @@ class OverwatchRefreshServiceTest {
 
     refreshService.saveSnapshotAndUpdatePeaks(user, ratings);
 
-    User savedUser = userCaptor.getValue();
-    assertEquals(2800, savedUser.getOverwatchDpsPeakRating());
-    assertEquals(2600, savedUser.getOverwatchTankPeakRating());
-    assertNull(savedUser.getOverwatchHealsPeakRating()); // null rating = no peak update
+    OverwatchProfile saved = userCaptor.getValue().getOverwatch();
+    assertEquals(2800, saved.getDpsPeakRating());
+    assertEquals(2600, saved.getTankPeakRating());
+    assertNull(saved.getHealsPeakRating()); // null rating = no peak update
   }
 
   // ---- cron job cooldown ----
@@ -136,13 +139,17 @@ class OverwatchRefreshServiceTest {
   void cronShouldSkipUsersRefreshedWithinCooldownWindow() {
     User recentUser = User.builder()
         .id("u1").username("recent")
-        .overwatchPlayerId("Recent-1")
-        .overwatchLastUpdatedAt(Instant.now().minus(5, ChronoUnit.MINUTES))
+        .overwatch(OverwatchProfile.builder()
+            .playerId("Recent-1")
+            .lastUpdatedAt(Instant.now().minus(5, ChronoUnit.MINUTES))
+            .build())
         .build();
     User staleUser = User.builder()
         .id("u2").username("stale")
-        .overwatchPlayerId("Stale-1")
-        .overwatchLastUpdatedAt(Instant.now().minus(30, ChronoUnit.MINUTES))
+        .overwatch(OverwatchProfile.builder()
+            .playerId("Stale-1")
+            .lastUpdatedAt(Instant.now().minus(30, ChronoUnit.MINUTES))
+            .build())
         .build();
 
     OverfastPlayerCompleteDto emptyComplete = new OverfastPlayerCompleteDto();
@@ -159,8 +166,10 @@ class OverwatchRefreshServiceTest {
 
   @Test
   void cronShouldContinueAfterSingleUserFailure() {
-    User failUser = User.builder().id("u1").username("fail").overwatchPlayerId("Fail-1").build();
-    User okUser = User.builder().id("u2").username("ok").overwatchPlayerId("Ok-1").build();
+    User failUser = User.builder().id("u1").username("fail")
+        .overwatch(OverwatchProfile.builder().playerId("Fail-1").build()).build();
+    User okUser = User.builder().id("u2").username("ok")
+        .overwatch(OverwatchProfile.builder().playerId("Ok-1").build()).build();
 
     when(userRepository.findAll()).thenReturn(List.of(failUser, okUser));
     when(overwatchClient.getCompletePlayerInfo("Fail-1"))
