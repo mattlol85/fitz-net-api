@@ -48,7 +48,7 @@ public class SecurityConfig {
             auth ->
                 auth.requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
-                    .requestMatchers("/user/create", "/user/login")
+                    .requestMatchers("/user/create", "/user/login", "/user/forgot-password", "/user/reset-password")
                     .permitAll()
                     .requestMatchers("/encrypt", "/decrypt")
                     .permitAll()

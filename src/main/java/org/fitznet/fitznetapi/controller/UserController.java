@@ -2,11 +2,13 @@ package org.fitznet.fitznetapi.controller;
 
 import jakarta.validation.Valid;
 import java.util.List;
-
+import java.util.Map;
 import jakarta.validation.constraints.NotBlank;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
+import org.fitznet.fitznetapi.dto.requests.ForgotPasswordRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
+import org.fitznet.fitznetapi.dto.requests.ResetPasswordRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
@@ -14,12 +16,14 @@ import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
+import org.fitznet.fitznetapi.service.PasswordResetService;
 import org.fitznet.fitznetapi.service.UserService;
 import org.fitznet.fitznetapi.util.JwtUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -36,6 +40,7 @@ public class UserController {
 
   @Autowired UserService userService;
   @Autowired JwtUtil jwtUtil;
+  @Autowired PasswordResetService passwordResetService;
 
   static final Logger log = LoggerFactory.getLogger(UserController.class);
   @Autowired private UserRepository userRepository;
@@ -134,6 +139,23 @@ public class UserController {
     } else {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
     }
+  }
+
+  @PostMapping("/user/forgot-password")
+  public ResponseEntity<Map<String, Object>> forgotPassword(@RequestBody @Valid ForgotPasswordRequestDto request) {
+    log.info("Request for /user/forgot-password");
+    passwordResetService.initiateReset(request.getEmail());
+    return ResponseEntity.ok(Map.of("success", true, "message", "If that email is registered, a reset link has been sent."));
+  }
+
+  @PostMapping("/user/reset-password")
+  public ResponseEntity<Map<String, Object>> resetPassword(@RequestBody @Valid ResetPasswordRequestDto request) {
+    log.info("Request for /user/reset-password");
+    boolean success = passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
+    if (!success) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
+    }
+    return ResponseEntity.ok(Map.of("success", true, "message", "Password reset successfully"));
   }
 
   private boolean doesUserAlreadyExist(String username) {
