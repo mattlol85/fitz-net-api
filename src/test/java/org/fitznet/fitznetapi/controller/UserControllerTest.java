@@ -14,6 +14,7 @@ import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
+import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -69,7 +70,7 @@ class UserControllerTest {
     when(userRepository.findByEmail(userDTO.getEmail()))
         .thenReturn(null); // Ensuring email doesn't exist
 
-    User createdUser = userController.createUser(userDTO);
+    UserResponseDto createdUser = userController.createUser(userDTO);
 
     assertNotNull(createdUser);
     assertEquals("mattlol85", createdUser.getUsername());
@@ -88,7 +89,7 @@ class UserControllerTest {
 
     when(userService.readByUsername(username)).thenReturn(user);
 
-    User foundUser = userController.readUser(username);
+    UserResponseDto foundUser = userController.readUser(username);
 
     assertNotNull(foundUser);
     assertEquals(username, foundUser.getUsername());
@@ -101,7 +102,7 @@ class UserControllerTest {
 
     when(userService.readByUsername(username)).thenReturn(null);
 
-    User foundUser = userController.readUser(username);
+    UserResponseDto foundUser = userController.readUser(username);
 
     assertNull(foundUser);
     verify(userService, times(1)).readByUsername(username);
@@ -118,7 +119,7 @@ class UserControllerTest {
 
     when(userService.findAll()).thenReturn(Collections.singletonList(user));
 
-    List<User> users = userController.readAllUsers();
+    List<UserResponseDto> users = userController.readAllUsers();
 
     assertNotNull(users);
     assertEquals(1, users.size());

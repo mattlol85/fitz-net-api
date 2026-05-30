@@ -11,6 +11,7 @@ import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
+import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -40,27 +41,29 @@ public class UserController {
   @Autowired private UserRepository userRepository;
 
   @PostMapping("/user/create")
-  public User createUser(@RequestBody @Valid UserDTO user) {
+  public UserResponseDto createUser(@RequestBody @Valid UserDTO user) {
     log.info("Request at /user/create - username: {}", user.getUsername());
     performRequestValidations(user);
-    return userService.saveUser(
+    User saved = userService.saveUser(
         User.builder()
             .username(user.getUsername())
             .email(user.getEmail())
             .password(user.getPassword())
             .build());
+    return toUserResponse(saved);
   }
 
   @PostMapping("/user/read")
-  public User readUser(@RequestBody @NotBlank String username) {
+  public UserResponseDto readUser(@RequestBody @NotBlank String username) {
     log.info("Request for /user/read - {}", username);
-    return userService.readByUsername(username);
+    User user = userService.readByUsername(username);
+    return user != null ? toUserResponse(user) : null;
   }
 
   @GetMapping("/user/readAll")
-  public List<User> readAllUsers() {
+  public List<UserResponseDto> readAllUsers() {
     log.info("Request for /user/readAll");
-    return userService.findAll();
+    return userService.findAll().stream().map(UserController::toUserResponse).toList();
   }
 
   @DeleteMapping("/user/delete")
@@ -149,6 +152,10 @@ public class UserController {
     var possibleUser = userRepository.findByEmail(user.getEmail());
     log.info("Checking to see if email {} exists in db", user.getEmail());
     return null != possibleUser;
+  }
+
+  private static UserResponseDto toUserResponse(User user) {
+    return new UserResponseDto(user.getId(), user.getUsername(), user.getEmail(), user.getBoardColor());
   }
 
   private void performRequestValidations(UserDTO user) {

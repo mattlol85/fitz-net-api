@@ -1,0 +1,15 @@
+package org.fitznet.fitznetapi.dto.responses;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class UserResponseDto {
+  String id;
+  String username;
+  String email;
+  String boardColor;
+}
