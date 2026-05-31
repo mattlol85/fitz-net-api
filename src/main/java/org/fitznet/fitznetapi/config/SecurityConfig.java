@@ -1,7 +1,8 @@
 package org.fitznet.fitznetapi.config;
 
-import java.util.List;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
+import org.fitznet.fitznetapi.metrics.FitzNetMetrics;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,7 +21,15 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 public class SecurityConfig {
 
-  @Autowired private JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final FitzNetMetrics fitzNetMetrics;
+
+  @Autowired
+  public SecurityConfig(
+      JwtAuthenticationFilter jwtAuthenticationFilter, FitzNetMetrics fitzNetMetrics) {
+    this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    this.fitzNetMetrics = fitzNetMetrics;
+  }
 
   @Bean
   public PasswordEncoder passwordEncoder() {
@@ -30,13 +39,15 @@ public class SecurityConfig {
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.csrf(AbstractHttpConfigurer::disable)
-        .cors(cors -> {})
+        .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .exceptionHandling(
             exceptions ->
                 exceptions.authenticationEntryPoint(
                     (request, response, authException) -> {
+                      fitzNetMetrics.recordApiFailure(
+                          "authentication", Integer.toString(HttpServletResponse.SC_UNAUTHORIZED));
                       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                       response.setContentType("application/json");
                       response
@@ -52,7 +63,12 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/encrypt", "/decrypt")
                     .permitAll()
-                    .requestMatchers("/actuator/health", "/actuator/info", "/info", "/error")
+                    .requestMatchers(
+                        "/actuator/health",
+                        "/actuator/info",
+                        "/actuator/prometheus",
+                        "/info",
+                        "/error")
                     .permitAll()
                     .requestMatchers("/ws-board/**")
                     .permitAll()
