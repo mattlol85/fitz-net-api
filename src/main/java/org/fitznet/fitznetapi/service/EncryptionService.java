@@ -30,8 +30,9 @@ public class EncryptionService {
       Cipher cipher = Cipher.getInstance("AES");
       cipher.init(Cipher.ENCRYPT_MODE, secretKey);
       byte[] encryptedBytes = cipher.doFinal(data.getBytes());
+      String encoded = Base64.getEncoder().encodeToString(encryptedBytes);
       fitzNetMetrics.recordEncryptionOperation("encrypt", "success", sample);
-      return Base64.getEncoder().encodeToString(encryptedBytes);
+      return encoded;
     } catch (Exception ex) {
       fitzNetMetrics.recordEncryptionOperation("encrypt", "failure", sample);
       throw ex;
@@ -45,8 +46,9 @@ public class EncryptionService {
       cipher.init(Cipher.DECRYPT_MODE, secretKey);
       byte[] decodedBytes = Base64.getDecoder().decode(encryptedData);
       byte[] decryptedBytes = cipher.doFinal(decodedBytes);
+      String decrypted = new String(decryptedBytes);
       fitzNetMetrics.recordEncryptionOperation("decrypt", "success", sample);
-      return new String(decryptedBytes);
+      return decrypted;
     } catch (Exception ex) {
       fitzNetMetrics.recordEncryptionOperation("decrypt", "failure", sample);
       throw ex;
