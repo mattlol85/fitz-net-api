@@ -37,7 +37,7 @@ Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management,
 - Endpoints are prefixed `/user/` (e.g. `/user/create`, `/user/login`)
 - Auth: JWT Bearer token — `JwtAuthenticationFilter` puts username into `SecurityContextHolder`
 - Authenticated endpoints: call `SecurityContextHolder.getContext().getAuthentication().getName()` to get current user
-- **Public endpoints:** `/user/create`, `/user/login`, `/actuator/health`, `/actuator/info`, `/encrypt`, `/decrypt`
+- **Public endpoints:** `/user/create`, `/user/login`, `/actuator/health`, `/actuator/info` (`/encrypt` and `/decrypt` require JWT)
 - All other endpoints require a valid JWT — add to `SecurityConfig.permitAll()` when making a new public endpoint
 - Passwords hashed with BCrypt via `PasswordEncoder`
 - Unit tests: Mockito (`@Mock`, `@InjectMocks`); integration tests: Flapdoodle embedded MongoDB
@@ -65,8 +65,10 @@ Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management,
 ```bash
 ./gradlew test                                    # Run all tests
 ./gradlew test --tests "*.UserControllerTest"     # Run specific test class
-./gradlew bootRun                                 # Start locally
+SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun      # Start locally (dev profile has a JWT fallback)
 ```
+
+Startup fails fast if `JWT_SECRET` is unset or shorter than 32 bytes (except under the `dev` profile, which has a local-only fallback). Set `JWT_SECRET` in the environment to run the default profile.
 
 ---
 
@@ -79,8 +81,8 @@ Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management,
 | POST | `/user/read` | JWT | `String username` | `User` |
 | GET | `/user/readAll` | JWT | — | `List<User>` |
 | PUT | `/user/update` | JWT | `UpdateProfileRequestDto { username, email, password }` | `UpdateProfileResponseDto { success, message, username, email }` |
-| PATCH | `/user/update` | JWT | `UpdateUserRequestDto { username, updatedUsername, email, updatedEmail, updatedPassword }` | `void` |
-| DELETE | `/user/delete` | JWT | `DeleteUserRequestDto { username }` | `void` |
+| PATCH | `/user/update` | JWT | `UpdateUserRequestDto { updatedUsername, updatedEmail, updatedPassword }` (target is always the authenticated user; any body `username` is ignored) | `UpdateProfileResponseDto { success, message, username, email, boardColor }` |
+| DELETE | `/user/delete` | JWT | — (deletes the authenticated user; no body) | `DeleteUserResponseDto { success, message, username }` |
 
 ---
 
