@@ -87,6 +87,9 @@ public class UserController {
     // The target account is always the authenticated principal; any body-supplied
     // username is ignored to prevent cross-account modification.
     updateUserDto.setUsername(currentUsername);
+    if (updateUserDto.getUpdatedPassword() != null && updateUserDto.getUpdatedPassword().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password must not be blank");
+    }
     User updatedUser = userService.updateUser(updateUserDto);
 
     if (updatedUser == null) {
