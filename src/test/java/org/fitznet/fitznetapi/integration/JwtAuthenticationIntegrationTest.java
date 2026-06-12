@@ -169,10 +169,24 @@ class JwtAuthenticationIntegrationTest {
 
     // /user/delete
     mockMvc
+        .perform(delete("/user/delete").contentType(MediaType.APPLICATION_JSON))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void encryptionEndpointsShouldRequireAuthentication() throws Exception {
+    mockMvc
         .perform(
-            delete("/user/delete")
+            post("/encrypt")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"test\"}"))
+                .content("{\"data\":\"secret\"}"))
+        .andExpect(status().isUnauthorized());
+
+    mockMvc
+        .perform(
+            post("/decrypt")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"data\":\"ciphertext\"}"))
         .andExpect(status().isUnauthorized());
   }
 

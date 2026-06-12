@@ -69,12 +69,21 @@ class PrometheusMetricsIntegrationTest {
                         new UserDTO(username, username + "@example.com", password))))
         .andExpect(status().isOk());
 
-    mockMvc
-        .perform(
-            post("/user/login")
-                .contentType(APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new LoginRequestDto(username, password))))
-        .andExpect(status().isOk());
+    MvcResult loginResult =
+        mockMvc
+            .perform(
+                post("/user/login")
+                    .contentType(APPLICATION_JSON)
+                    .content(
+                        objectMapper.writeValueAsString(new LoginRequestDto(username, password))))
+            .andExpect(status().isOk())
+            .andReturn();
+
+    String token =
+        objectMapper
+            .readTree(loginResult.getResponse().getContentAsString(StandardCharsets.UTF_8))
+            .get("token")
+            .asText();
 
     mockMvc
         .perform(
@@ -89,6 +98,7 @@ class PrometheusMetricsIntegrationTest {
         mockMvc
             .perform(
                 post("/encrypt")
+                    .header("Authorization", "Bearer " + token)
                     .contentType(APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(new EncryptRequest("hello metrics"))))
             .andExpect(status().isOk())
@@ -99,6 +109,7 @@ class PrometheusMetricsIntegrationTest {
     mockMvc
         .perform(
             post("/decrypt")
+                .header("Authorization", "Bearer " + token)
                 .contentType(APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
