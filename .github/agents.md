@@ -1,6 +1,6 @@
 # fitz-net-api — Agentic Development Guide
 
-Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management, authentication, and encryption services.
+Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management and authentication services.
 
 ---
 
@@ -37,7 +37,7 @@ Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management,
 - Endpoints are prefixed `/user/` (e.g. `/user/create`, `/user/login`)
 - Auth: JWT Bearer token — `JwtAuthenticationFilter` puts username into `SecurityContextHolder`
 - Authenticated endpoints: call `SecurityContextHolder.getContext().getAuthentication().getName()` to get current user
-- **Public endpoints:** `/user/create`, `/user/login`, `/actuator/health`, `/actuator/info`, `/encrypt`, `/decrypt`
+- **Public endpoints:** `/user/create`, `/user/login`, `/actuator/health`, `/actuator/info`
 - All other endpoints require a valid JWT — add to `SecurityConfig.permitAll()` when making a new public endpoint
 - Passwords hashed with BCrypt via `PasswordEncoder`
 - Unit tests: Mockito (`@Mock`, `@InjectMocks`); integration tests: Flapdoodle embedded MongoDB

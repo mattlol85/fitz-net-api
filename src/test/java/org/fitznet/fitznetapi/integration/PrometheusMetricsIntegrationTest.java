@@ -8,13 +8,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import org.fitznet.fitznetapi.config.EmbeddedMongoTestConfiguration;
 import org.fitznet.fitznetapi.dto.UserDTO;
-import org.fitznet.fitznetapi.dto.encryption.EncryptRequest;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +23,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -85,26 +82,6 @@ class PrometheusMetricsIntegrationTest {
                         new LoginRequestDto(username, "wrong-password"))))
         .andExpect(status().isUnauthorized());
 
-    MvcResult encryptionResult =
-        mockMvc
-            .perform(
-                post("/encrypt")
-                    .contentType(APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(new EncryptRequest("hello metrics"))))
-            .andExpect(status().isOk())
-            .andReturn();
-
-    JsonNode encryptionBody =
-        objectMapper.readTree(encryptionResult.getResponse().getContentAsString(StandardCharsets.UTF_8));
-    mockMvc
-        .perform(
-            post("/decrypt")
-                .contentType(APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        new EncryptRequest(encryptionBody.get("data").asText()))))
-        .andExpect(status().isOk());
-
     mockMvc.perform(get("/user/readAll")).andExpect(status().isUnauthorized());
 
     String body =
@@ -124,16 +101,6 @@ class PrometheusMetricsIntegrationTest {
         "fitznet_user_operations_total",
         "operation=\"login\"",
         "result=\"invalid_credentials\"");
-    assertMetricLineContains(
-        body,
-        "fitznet_encryption_operations_total",
-        "operation=\"encrypt\"",
-        "result=\"success\"");
-    assertMetricLineContains(
-        body,
-        "fitznet_encryption_operations_total",
-        "operation=\"decrypt\"",
-        "result=\"success\"");
     assertMetricLineContains(
         body, "fitznet_api_failures_total", "type=\"response_status\"", "status=\"401\"");
     assertMetricLineContains(
