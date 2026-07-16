@@ -136,8 +136,7 @@ class UserServiceTest {
   @Test
   void shouldUpdateUserAndRecordMetric() {
     UpdateUserRequestDto updateRequest =
-        new UpdateUserRequestDto(
-            "testuser", "updateduser", "test@example.com", "updated@example.com", "newpassword");
+        new UpdateUserRequestDto("testuser", "updateduser", "updated@example.com", "newpassword");
     User updatedUser =
         User.builder()
             .username("updateduser")
@@ -159,7 +158,7 @@ class UserServiceTest {
   @Test
   void shouldReturnNullWhenUserDoesNotExistOnUpdateAndRecordMetric() {
     UpdateUserRequestDto updateRequest =
-        new UpdateUserRequestDto("missinguser", null, null, null, null);
+        new UpdateUserRequestDto("missinguser", null, null, null);
     when(userRepository.findAndModifyUser(updateRequest)).thenReturn(null);
 
     User result = userService.updateUser(updateRequest);
