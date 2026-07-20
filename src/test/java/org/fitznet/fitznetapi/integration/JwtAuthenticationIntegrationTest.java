@@ -169,10 +169,7 @@ class JwtAuthenticationIntegrationTest {
 
     // /user/delete
     mockMvc
-        .perform(
-            delete("/user/delete")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"username\":\"test\"}"))
+        .perform(delete("/user/delete").contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isUnauthorized());
   }
 
