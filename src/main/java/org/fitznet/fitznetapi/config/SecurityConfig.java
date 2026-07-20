@@ -61,8 +61,6 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/user/create", "/user/login")
                     .permitAll()
-                    .requestMatchers("/encrypt", "/decrypt")
-                    .permitAll()
                     .requestMatchers(
                         "/actuator/health",
                         "/actuator/info",
