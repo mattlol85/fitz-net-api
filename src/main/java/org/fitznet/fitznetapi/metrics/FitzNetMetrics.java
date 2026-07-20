@@ -10,8 +10,6 @@ public class FitzNetMetrics {
 
   private static final String USER_OPERATION_COUNTER = "fitznet.user.operations";
   private static final String USER_OPERATION_TIMER = "fitznet.user.operation";
-  private static final String ENCRYPTION_OPERATION_COUNTER = "fitznet.encryption.operations";
-  private static final String ENCRYPTION_OPERATION_TIMER = "fitznet.encryption.operation";
   private static final String API_FAILURE_COUNTER = "fitznet.api.failures";
 
   private final MeterRegistry meterRegistry;
@@ -35,24 +33,6 @@ public class FitzNetMetrics {
     stopTimer(
         USER_OPERATION_TIMER,
         "Duration of user management service operations by outcome",
-        sample,
-        "operation",
-        operation,
-        "result",
-        result);
-  }
-
-  public void recordEncryptionOperation(String operation, String result, Timer.Sample sample) {
-    incrementCounter(
-        ENCRYPTION_OPERATION_COUNTER,
-        "Count of encryption service operations by outcome",
-        "operation",
-        operation,
-        "result",
-        result);
-    stopTimer(
-        ENCRYPTION_OPERATION_TIMER,
-        "Duration of encryption service operations by outcome",
         sample,
         "operation",
         operation,

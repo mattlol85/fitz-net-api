@@ -5,10 +5,10 @@ import java.util.List;
 
 import jakarta.validation.constraints.NotBlank;
 import org.fitznet.fitznetapi.dto.UserDTO;
-import org.fitznet.fitznetapi.dto.requests.DeleteUserRequestDto;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
+import org.fitznet.fitznetapi.dto.responses.DeleteUserResponseDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
@@ -67,18 +67,33 @@ public class UserController {
   }
 
   @DeleteMapping("/user/delete")
-  public void deleteUser(@RequestBody @Valid DeleteUserRequestDto user) {
-    log.info("Request for /delete");
-    if (!doesUserAlreadyExist(user.getUsername())) {
+  public DeleteUserResponseDto deleteUser() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUsername = auth.getName();
+    log.info("Request for /user/delete - authenticated user: {}", currentUsername);
+    if (!doesUserAlreadyExist(currentUsername)) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found in db");
     }
-    userService.deleteUser(user.getUsername());
+    userService.deleteUser(currentUsername);
+    return new DeleteUserResponseDto(true, "User deleted successfully", currentUsername);
   }
 
   @PatchMapping("/user/update")
-  public void updateUser(@RequestBody @Valid UpdateUserRequestDto updateUserDto) {
-    log.info("Request for /update (PATCH)");
-    userService.updateUser(updateUserDto);
+  public UpdateProfileResponseDto updateUser(@RequestBody @Valid UpdateUserRequestDto updateUserDto) {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String currentUsername = auth.getName();
+    log.info("Request for /user/update (PATCH) - authenticated user: {}", currentUsername);
+
+    // The target account is always the authenticated principal; any body-supplied
+    // username is ignored to prevent cross-account modification.
+    updateUserDto.setUsername(currentUsername);
+    User updatedUser = userService.updateUser(updateUserDto);
+
+    if (updatedUser == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+    }
+
+    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail(), updatedUser.getBoardColor());
   }
 
   @PutMapping("/user/update")
