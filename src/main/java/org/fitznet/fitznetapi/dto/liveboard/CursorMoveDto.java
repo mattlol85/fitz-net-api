@@ -9,12 +9,15 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class CursorMoveDto {
+  @JsonProperty("username")
   private String username;
   @JsonProperty("xRatio")
   private double xRatio;
   @JsonProperty("yRatio")
   private double yRatio;
+  @JsonProperty("painting")
   private Boolean painting;
+  @JsonProperty("color")
   private String color;
 }
 

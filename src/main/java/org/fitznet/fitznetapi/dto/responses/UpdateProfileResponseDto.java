@@ -9,10 +9,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateProfileResponseDto {
-  boolean success;
-  String message;
-  String username;
-  String email;
+  @JsonProperty("success") boolean success;
+  @JsonProperty("message") String message;
+  @JsonProperty("username") String username;
+  @JsonProperty("email") String email;
   @JsonProperty("boardColor") String boardColor;
 }
 

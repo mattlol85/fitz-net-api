@@ -14,11 +14,11 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 public class BoardMessageDto {
-  private String id;
-  private String username;
+  @JsonProperty("id") private String id;
+  @JsonProperty("username") private String username;
   @JsonProperty("xRatio") private double xRatio;
   @JsonProperty("yRatio") private double yRatio;
-  private String content;
+  @JsonProperty("content") private String content;
   @JsonProperty("postedAt") private Instant postedAt;
 
   public static BoardMessageDto create(String username, double xRatio, double yRatio, String content) {
