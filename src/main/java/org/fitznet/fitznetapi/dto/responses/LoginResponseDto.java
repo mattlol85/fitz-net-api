@@ -9,11 +9,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LoginResponseDto {
-  boolean success;
-  String message;
-  String username;
-  String email;
-  String token;
+  @JsonProperty("success") boolean success;
+  @JsonProperty("message") String message;
+  @JsonProperty("username") String username;
+  @JsonProperty("email") String email;
+  @JsonProperty("token") String token;
   @JsonProperty("boardColor") String boardColor;
 }
 
