@@ -3,6 +3,8 @@ package org.fitznet.fitznetapi.util;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -20,8 +22,19 @@ public class JwtUtil {
   @Value("${jwt.expiration}")
   private Long expiration;
 
+  @PostConstruct
+  void validateSecret() {
+    if (secret == null || secret.isBlank()) {
+      throw new IllegalStateException(
+          "JWT_SECRET environment variable must be set - refusing to start without a signing key");
+    }
+    if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+      throw new IllegalStateException("JWT secret must be at least 32 bytes for HS256");
+    }
+  }
+
   private SecretKey getSigningKey() {
-    return Keys.hmacShaKeyFor(secret.getBytes());
+    return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
   }
 
   public String extractUsername(String token) {

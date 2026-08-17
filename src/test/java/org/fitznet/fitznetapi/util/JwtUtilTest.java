@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest(classes = JwtUtil.class)
 @TestPropertySource(properties = {
@@ -186,6 +187,44 @@ class JwtUtilTest {
         assertEquals(user1, jwtUtil.extractUsername(token1));
         assertEquals(user2, jwtUtil.extractUsername(token2));
         assertNotEquals(jwtUtil.extractUsername(token1), jwtUtil.extractUsername(token2));
+    }
+
+    @Test
+    void shouldFailStartupWhenJwtSecretIsBlank() {
+        JwtUtil util = new JwtUtil();
+        ReflectionTestUtils.setField(util, "secret", "");
+
+        IllegalStateException exception =
+                assertThrows(IllegalStateException.class, util::validateSecret);
+
+        assertTrue(exception.getMessage().contains("JWT_SECRET"));
+    }
+
+    @Test
+    void shouldFailStartupWhenJwtSecretIsMissing() {
+        JwtUtil util = new JwtUtil();
+        ReflectionTestUtils.setField(util, "secret", null);
+
+        assertThrows(IllegalStateException.class, util::validateSecret);
+    }
+
+    @Test
+    void shouldFailStartupWhenJwtSecretIsTooShort() {
+        JwtUtil util = new JwtUtil();
+        ReflectionTestUtils.setField(util, "secret", "tooShortSecret");
+
+        IllegalStateException exception =
+                assertThrows(IllegalStateException.class, util::validateSecret);
+
+        assertTrue(exception.getMessage().contains("32 bytes"));
+    }
+
+    @Test
+    void shouldAcceptSecretOfAtLeast32Bytes() {
+        JwtUtil util = new JwtUtil();
+        ReflectionTestUtils.setField(util, "secret", "exactlyThirtyTwoBytesLongSecret!");
+
+        util.validateSecret(); // must not throw
     }
 }
 

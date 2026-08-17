@@ -1,5 +1,15 @@
 # Getting Started
 
+### Required Configuration
+
+The app fails fast at startup unless `JWT_SECRET` is set to a value of at least 32 bytes (HS256 minimum). For local runs:
+
+```bash
+JWT_SECRET=$(openssl rand -base64 48) ./gradlew bootRun
+```
+
+In production the value comes from the Docker host's `.env` (see the Fitz-Net repo's `docker-compose.yml`). Tests use their own secret from `src/test/resources/application.properties`.
+
 ### Reference Documentation
 
 For further reference, please consider the following sections:
