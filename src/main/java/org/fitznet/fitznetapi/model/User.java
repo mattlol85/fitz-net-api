@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.AccessLevel;
 import lombok.experimental.FieldDefaults;
-import org.fitznet.fitznetapi.model.overwatch.OverwatchProfile;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -28,6 +27,4 @@ public class User {
   String email;
 
   String boardColor;
-
-  OverwatchProfile overwatch;
 }

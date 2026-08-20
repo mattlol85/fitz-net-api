@@ -72,8 +72,6 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/user/read", "/user/readAll", "/user/update", "/user/delete")
                     .authenticated()
-                    .requestMatchers("/overwatch/**")
-                    .authenticated()
                     .anyRequest()
                     .authenticated())
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
