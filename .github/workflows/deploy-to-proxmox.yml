@@ -1,0 +1,34 @@
+name: 🚀 Deploy fitz-net-api to Proxmox (Docker)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (e.g., 1.2.3, v1.2.3, or latest)"
+        required: true
+        default: "latest"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: 🚀 Deploy on Proxmox VM
+    runs-on: [self-hosted, proxmox]
+
+    steps:
+      - name: 🔍 Resolve deployment tag
+        id: vars
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          echo "Deploying tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 🚀 Run deploy script
+        run: /opt/fitznet/scripts/deploy-fitz-net-api.sh '${{ steps.vars.outputs.tag }}'
