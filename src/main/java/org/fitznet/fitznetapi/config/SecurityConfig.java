@@ -70,6 +70,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/ws-board/**")
                     .permitAll()
+                    .requestMatchers("/node/register", "/node/heartbeat", "/node/list")
+                    .permitAll()
                     .requestMatchers("/user/read", "/user/readAll", "/user/update", "/user/delete")
                     .authenticated()
                     .anyRequest()
