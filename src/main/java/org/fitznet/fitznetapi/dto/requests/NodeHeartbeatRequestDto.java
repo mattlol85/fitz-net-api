@@ -11,4 +11,5 @@ import lombok.NoArgsConstructor;
 public class NodeHeartbeatRequestDto {
   String status;
   List<String> models;
+  String address;
 }

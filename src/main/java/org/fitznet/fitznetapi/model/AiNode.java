@@ -30,6 +30,8 @@ public class AiNode {
   String os;
   List<String> models;
   Double vramGb;
+  /** The node's self-reported "host:port" for its Ollama instance (e.g. "192.168.1.50:11434"). Internal only - never exposed on {@link org.fitznet.fitznetapi.dto.NodeDto}. */
+  String address;
   Instant registeredAt;
   Instant lastHeartbeatAt;
 }
