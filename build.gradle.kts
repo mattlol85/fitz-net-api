@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "org.fitznet"
-version = "0.17.1"
+version = "0.18.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
