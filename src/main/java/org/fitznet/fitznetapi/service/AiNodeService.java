@@ -94,6 +94,21 @@ public class AiNodeService {
     return aiNodeRepository.findAll().stream().map(this::toDto).toList();
   }
 
+  /** A node deregistering itself (e.g. its uninstall script), authenticated by its own key. */
+  public void deleteNode(String nodeId, String nodeKey) {
+    AiNode node =
+        aiNodeRepository
+            .findById(nodeId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unknown node"));
+
+    if (!passwordEncoder.matches(nodeKey, node.getApiKeyHash())) {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid node key");
+    }
+
+    aiNodeRepository.deleteById(nodeId);
+    logger.info("Deregistered AI node: {} ({})", node.getName(), nodeId);
+  }
+
   public ChatResponseDto chat(String nodeId, String prompt, String requestedModel) {
     AiNode node =
         aiNodeRepository
