@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,6 +57,12 @@ public class NodeController {
   public ChatResponseDto chat(@PathVariable String id, @RequestBody @Valid ChatRequestDto request) {
     log.info("Request at /node/{}/chat", id);
     return aiNodeService.chat(id, request.getPrompt(), request.getModel());
+  }
+
+  @DeleteMapping("/node/{id}")
+  public void deleteNode(@PathVariable String id, @RequestHeader("X-Node-Key") String nodeKey) {
+    log.info("Request at DELETE /node/{}", id);
+    aiNodeService.deleteNode(id, nodeKey);
   }
 
   private NodeStatus parseStatus(String status) {

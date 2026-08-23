@@ -72,6 +72,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/node/register", "/node/heartbeat", "/node/list")
                     .permitAll()
+                    .requestMatchers(HttpMethod.DELETE, "/node/*")
+                    .permitAll()
                     .requestMatchers("/user/read", "/user/readAll", "/user/update", "/user/delete")
                     .authenticated()
                     .anyRequest()
