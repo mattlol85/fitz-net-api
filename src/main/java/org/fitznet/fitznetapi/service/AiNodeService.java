@@ -122,10 +122,14 @@ public class AiNodeService {
             "stream", false);
 
     try {
+      // Build the full literal URL rather than substituting a "{address}" URI
+      // template variable: RestClient percent-encodes expanded template
+      // values, which turns the ":" between host and port into "%3A" and
+      // breaks the request entirely.
       Map<String, Object> ollamaResponse =
           ollamaRestClient
               .post()
-              .uri("http://{address}/api/chat", node.getAddress())
+              .uri("http://" + node.getAddress() + "/api/chat")
               .body(ollamaRequest)
               .retrieve()
               .body(Map.class);
