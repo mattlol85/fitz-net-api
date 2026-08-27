@@ -36,6 +36,7 @@ class JwtAuthenticationIntegrationTest {
   private static final String ALLOWED_ORIGIN = "https://fitznet.doomdns.org";
   private static final String FITZNET_ORG_ORIGIN = "https://fitznet.org";
   private static final String LOCALHOST_ORIGIN = "http://localhost:3000";
+  private static final String LOGS_ORIGIN = "https://logs.fitznet.org";
 
   private String validToken;
 
@@ -254,6 +255,16 @@ class JwtAuthenticationIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON))
         .andExpect(status().isOk())
         .andExpect(header().string("Access-Control-Allow-Origin", FITZNET_ORG_ORIGIN));
+  }
+
+  @Test
+  void logsDashboardOriginShouldReachPrometheusEndpoint() throws Exception {
+    mockMvc
+        .perform(
+            get("/actuator/prometheus")
+                .header("Origin", LOGS_ORIGIN))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Access-Control-Allow-Origin", LOGS_ORIGIN));
   }
 
   @Test
