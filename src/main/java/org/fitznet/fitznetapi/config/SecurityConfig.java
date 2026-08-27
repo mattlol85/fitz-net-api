@@ -92,6 +92,8 @@ public class SecurityConfig {
             "https://fitznet.doomdns.org",
             "https://api.fitznet.doomdns.org",
             "https://gamerbell.fitznet.doomdns.org",
+            "https://logs.fitznet.org",
+            "https://logs.fitznet.doomdns.org",
             "http://localhost:3000"));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));
