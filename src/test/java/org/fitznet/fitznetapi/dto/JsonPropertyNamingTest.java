@@ -106,7 +106,7 @@ class JsonPropertyNamingTest {
   @Test
   void loginResponseDtoSerializesBoardColorAsCamelCase() throws Exception {
     LoginResponseDto dto = new LoginResponseDto(
-        true, "Login successful", "alice", "alice@example.com", "jwt-token", "hsl(200,72%,50%)");
+        true, "Login successful", "alice", "alice@example.com", "jwt-token", "hsl(200,72%,50%)", java.util.Set.of());
     String json = mapper.writeValueAsString(dto);
 
     assertTrue(json.contains("\"boardColor\""),  "Expected \"boardColor\" in JSON: "   + json);
@@ -118,7 +118,7 @@ class JsonPropertyNamingTest {
   @Test
   void updateProfileResponseDtoSerializesBoardColorAsCamelCase() throws Exception {
     UpdateProfileResponseDto dto = new UpdateProfileResponseDto(
-        true, "Updated", "alice", "alice@example.com", "hsl(200,72%,50%)");
+        true, "Updated", "alice", "alice@example.com", "hsl(200,72%,50%)", java.util.Set.of());
     String json = mapper.writeValueAsString(dto);
 
     assertTrue(json.contains("\"boardColor\""),  "Expected \"boardColor\" in JSON: "   + json);

@@ -5,8 +5,10 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import javax.crypto.SecretKey;
@@ -63,7 +65,13 @@ public class JwtUtil {
   }
 
   public String generateToken(String username) {
+    return generateToken(username, List.of());
+  }
+
+  /** The {@code permissions} claim is a UI convenience only; the API re-checks the database. */
+  public String generateToken(String username, Collection<String> permissions) {
     Map<String, Object> claims = new HashMap<>();
+    claims.put("permissions", List.copyOf(permissions));
     return createToken(claims, username);
   }
 

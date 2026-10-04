@@ -33,6 +33,8 @@ class JwtAuthenticationIntegrationTest {
 
   @Autowired private JwtUtil jwtUtil;
 
+  @Autowired private org.fitznet.fitznetapi.repository.UserRepository userRepository;
+
   private static final String ALLOWED_ORIGIN = "https://fitznet.doomdns.org";
   private static final String FITZNET_ORG_ORIGIN = "https://fitznet.org";
   private static final String LOCALHOST_ORIGIN = "http://localhost:3000";
@@ -42,6 +44,15 @@ class JwtAuthenticationIntegrationTest {
 
   @BeforeEach
   void setUp() {
+    // Tokens only authenticate while the user exists; readAll requires ADMIN.
+    userRepository.deleteAll();
+    userRepository.save(
+        org.fitznet.fitznetapi.model.User.builder()
+            .username("testuser")
+            .email("testuser@example.com")
+            .password("x")
+            .permissions(new java.util.HashSet<>(java.util.Set.of("ADMIN")))
+            .build());
     validToken = jwtUtil.generateToken("testuser");
   }
 

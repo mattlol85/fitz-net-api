@@ -8,10 +8,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class UserResponseDto {
-  String id;
+public class UserPermissionsResponseDto {
   String username;
-  String email;
-  String boardColor;
   Set<String> permissions;
 }

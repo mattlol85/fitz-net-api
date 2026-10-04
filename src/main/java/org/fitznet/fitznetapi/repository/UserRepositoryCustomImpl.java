@@ -2,6 +2,7 @@ package org.fitznet.fitznetapi.repository;
 
 import static java.util.Objects.nonNull;
 
+import java.util.Collection;
 import lombok.extern.slf4j.Slf4j;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.model.User;
@@ -75,5 +76,27 @@ public class UserRepositoryCustomImpl implements UserRepositoryCustom {
 
     return updatedUser;
   }
-}
 
+  @Override
+  public User setPermissions(String username, Collection<String> permissions) {
+    return modifyByUsername(username, new Update().set("permissions", permissions));
+  }
+
+  @Override
+  public User addPermission(String username, String permission) {
+    return modifyByUsername(username, new Update().addToSet("permissions", permission));
+  }
+
+  @Override
+  public User removePermission(String username, String permission) {
+    return modifyByUsername(username, new Update().pull("permissions", permission));
+  }
+
+  private User modifyByUsername(String username, Update update) {
+    return mongoTemplate.findAndModify(
+        new Query(Criteria.where("username").is(username)),
+        update,
+        new FindAndModifyOptions().returnNew(true),
+        User.class);
+  }
+}

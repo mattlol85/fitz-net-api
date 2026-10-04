@@ -2,6 +2,7 @@ package org.fitznet.fitznetapi.controller;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.mockito.MockitoAnnotations.openMocks;
 
@@ -228,7 +229,7 @@ class UserControllerTest {
 
     when(userService.verifyPassword("mattlol85", "testPassword123")).thenReturn(true);
     when(userService.readByUsername("mattlol85")).thenReturn(user);
-    when(jwtUtil.generateToken("mattlol85")).thenReturn("mock-jwt-token");
+    when(jwtUtil.generateToken(eq("mattlol85"), any())).thenReturn("mock-jwt-token");
 
     LoginResponseDto response = userController.login(loginRequest);
 
@@ -238,7 +239,7 @@ class UserControllerTest {
     assertEquals("test@example.com", response.getEmail());
     assertEquals("mock-jwt-token", response.getToken());
     verify(userService, times(1)).verifyPassword("mattlol85", "testPassword123");
-    verify(jwtUtil, times(1)).generateToken("mattlol85");
+    verify(jwtUtil, times(1)).generateToken(eq("mattlol85"), any());
   }
 
   @Test

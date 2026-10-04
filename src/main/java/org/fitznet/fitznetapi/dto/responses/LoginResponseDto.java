@@ -1,6 +1,7 @@
 package org.fitznet.fitznetapi.dto.responses;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.Set;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,5 +16,6 @@ public class LoginResponseDto {
   @JsonProperty("email") String email;
   @JsonProperty("token") String token;
   @JsonProperty("boardColor") String boardColor;
+  @JsonProperty("permissions") Set<String> permissions;
 }
 
