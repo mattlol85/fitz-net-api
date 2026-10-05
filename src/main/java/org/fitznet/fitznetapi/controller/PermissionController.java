@@ -88,8 +88,8 @@ public class PermissionController {
     log.info("Setting permissions for {} to {} (by {})", username, request.getPermissions(), caller());
     requireDefined(request.getPermissions());
     guardSelfAdminRemoval(username, request.getPermissions().contains(Permissions.ADMIN));
-    return toResponse(
-        requireUser(userService.setPermissions(username, request.getPermissions())));
+    User updated = requireUser(userService.setPermissions(username, request.getPermissions()));
+    return toResponse(revokeIfUndefinedMeanwhile(username, request.getPermissions(), updated));
   }
 
   @PostMapping("/users/{username}/permissions/{permission}")
@@ -97,7 +97,8 @@ public class PermissionController {
       @PathVariable String username, @PathVariable String permission) {
     requireDefined(Set.of(permission));
     log.info("Granting {} to {} (by {})", permission, username, caller());
-    return toResponse(requireUser(userService.addPermission(username, permission)));
+    User updated = requireUser(userService.addPermission(username, permission));
+    return toResponse(revokeIfUndefinedMeanwhile(username, Set.of(permission), updated));
   }
 
   @DeleteMapping("/users/{username}/permissions/{permission}")
@@ -110,13 +111,31 @@ public class PermissionController {
 
   /** JWT admins cannot strip their own ADMIN permission; the API key is exempt (no lockout). */
   private void guardSelfAdminRemoval(String targetUsername, boolean keepsAdmin) {
-    String caller = caller();
+    var auth = SecurityContextHolder.getContext().getAuthentication();
     if (!keepsAdmin
-        && !AdminApiKeyFilter.PRINCIPAL.equals(caller)
-        && caller.equals(targetUsername)) {
+        && !(auth instanceof AdminApiKeyFilter.ApiKeyAuthentication)
+        && auth.getName().equals(targetUsername)) {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "You cannot remove your own ADMIN permission");
     }
+  }
+
+  /**
+   * A permission can be deleted between {@link #requireDefined} and the write. Re-check afterwards
+   * and undo any grant of a permission that no longer exists, so no orphan grants survive (either
+   * the delete's revoke sees our grant, or we see the delete here).
+   */
+  private User revokeIfUndefinedMeanwhile(String username, Set<String> granted, User updated) {
+    Set<String> gone = permissionService.unknown(granted);
+    User result = updated;
+    for (String permission : gone) {
+      result = userService.removePermission(username, permission);
+    }
+    if (!gone.isEmpty()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "Permission was deleted concurrently: " + String.join(", ", gone));
+    }
+    return result;
   }
 
   private void requireDefined(Set<String> requested) {

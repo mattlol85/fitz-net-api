@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 import jakarta.validation.constraints.NotBlank;
+import org.fitznet.fitznetapi.config.AdminApiKeyFilter;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
@@ -194,6 +195,10 @@ public class UserController {
   }
 
   private void performRequestValidations(UserDTO user) {
+    if (AdminApiKeyFilter.PRINCIPAL.equalsIgnoreCase(user.getUsername())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username is reserved");
+    }
+
     if (doesUserAlreadyExist(user)) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
     }

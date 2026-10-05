@@ -56,7 +56,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     // Validate token and set authentication
     if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
       // Permissions come from the database, not the token, so revocation is immediate.
-      User user = jwtUtil.validateToken(jwt) ? userService.readByUsername(username) : null;
+      User user = null;
+      try {
+        user = jwtUtil.validateToken(jwt) ? userService.readByUsername(username) : null;
+      } catch (RuntimeException e) {
+        // e.g. Mongo unavailable: leave the request unauthenticated so public endpoints still work
+        log.warn("Could not load user {} during JWT authentication: {}", username, e.getMessage());
+      }
       if (user != null) {
         Set<String> granted = user.getPermissions() == null ? Set.of() : user.getPermissions();
         List<GrantedAuthority> authorities =

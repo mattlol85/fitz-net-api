@@ -105,6 +105,18 @@ class PermissionIntegrationTest {
   }
 
   @Test
+  void reservedApiKeyUsernameCannotBeRegistered() throws Exception {
+    mockMvc
+        .perform(
+            post("/user/create")
+                .contentType(APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new UserDTO("admin-api-key", "x@example.com", "password123"))))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void putReplacesPermissionSet() throws Exception {
     createUser("alice");
     mockMvc

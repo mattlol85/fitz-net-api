@@ -76,6 +76,21 @@ class JwtAuthenticationFilterTest {
   }
 
   @Test
+  void doFilterInternalShouldContinueUnauthenticatedWhenUserLookupFails()
+      throws ServletException, IOException {
+    String token = "valid.jwt.token";
+    request.addHeader("Authorization", "Bearer " + token);
+    when(jwtUtil.extractUsername(token)).thenReturn("testuser");
+    when(jwtUtil.validateToken(token)).thenReturn(true);
+    when(userService.readByUsername("testuser")).thenThrow(new RuntimeException("mongo down"));
+
+    jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+    assertNull(SecurityContextHolder.getContext().getAuthentication());
+    verify(filterChain, times(1)).doFilter(request, response);
+  }
+
+  @Test
   void doFilterInternalShouldNotAuthenticateWhenUserNoLongerExists()
       throws ServletException, IOException {
     String token = "valid.jwt.token";

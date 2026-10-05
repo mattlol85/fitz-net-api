@@ -27,6 +27,16 @@ public class AdminApiKeyFilter extends OncePerRequestFilter {
   public static final String HEADER = "X-Admin-Key";
   public static final String PRINCIPAL = "admin-api-key";
 
+  /** Marker type so callers can tell API-key auth from a user who merely has this name. */
+  public static final class ApiKeyAuthentication extends UsernamePasswordAuthenticationToken {
+    ApiKeyAuthentication() {
+      super(
+          PRINCIPAL,
+          null,
+          List.of(new SimpleGrantedAuthority(Permissions.authority(Permissions.ADMIN))));
+    }
+  }
+
   private final byte[] configuredKey;
 
   public AdminApiKeyFilter(@Value("${admin.api-key:}") String apiKey) {
@@ -44,11 +54,7 @@ public class AdminApiKeyFilter extends OncePerRequestFilter {
         && SecurityContextHolder.getContext().getAuthentication() == null
         && MessageDigest.isEqual(configuredKey, provided.getBytes(StandardCharsets.UTF_8))) {
       SecurityContextHolder.getContext()
-          .setAuthentication(
-              new UsernamePasswordAuthenticationToken(
-                  PRINCIPAL,
-                  null,
-                  List.of(new SimpleGrantedAuthority(Permissions.authority(Permissions.ADMIN)))));
+          .setAuthentication(new ApiKeyAuthentication());
     }
     filterChain.doFilter(request, response);
   }
