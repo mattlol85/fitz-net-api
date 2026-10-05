@@ -34,10 +34,19 @@ class PermissionIntegrationTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
   @Autowired private UserRepository userRepository;
+  @Autowired private org.fitznet.fitznetapi.repository.PermissionRepository permissionRepository;
 
   @BeforeEach
   void setUp() {
     userRepository.deleteAll();
+    permissionRepository.deleteAll();
+    definePermission("RADARR");
+    definePermission("SONARR");
+  }
+
+  private void definePermission(String name) {
+    permissionRepository.save(
+        org.fitznet.fitznetapi.model.PermissionDefinition.builder().name(name).build());
   }
 
   private void createUser(String username) throws Exception {
@@ -144,6 +153,86 @@ class PermissionIntegrationTest {
         .perform(
             delete("/admin/users/root/permissions/ADMIN")
                 .header("Authorization", "Bearer " + token))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void listIncludesBuiltInAdminAndDefinedPermissions() throws Exception {
+    mockMvc
+        .perform(get("/admin/permissions").header(KEY, KEY_VALUE))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.name=='ADMIN')]").exists())
+        .andExpect(jsonPath("$[?(@.name=='RADARR')]").exists());
+  }
+
+  @Test
+  void permissionsCanBeCreatedAndUsedAtRuntime() throws Exception {
+    createUser("alice");
+    mockMvc
+        .perform(
+            post("/admin/permissions")
+                .header(KEY, KEY_VALUE)
+                .contentType(APPLICATION_JSON)
+                .content("{\"name\":\"LIVEBOARD\",\"description\":\"The board\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("LIVEBOARD"));
+    mockMvc
+        .perform(post("/admin/users/alice/permissions/LIVEBOARD").header(KEY, KEY_VALUE))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.permissions[0]").value("LIVEBOARD"));
+  }
+
+  @Test
+  void createRejectsDuplicatesAndBadNames() throws Exception {
+    mockMvc
+        .perform(
+            post("/admin/permissions")
+                .header(KEY, KEY_VALUE)
+                .contentType(APPLICATION_JSON)
+                .content("{\"name\":\"RADARR\"}"))
+        .andExpect(status().isConflict());
+    mockMvc
+        .perform(
+            post("/admin/permissions")
+                .header(KEY, KEY_VALUE)
+                .contentType(APPLICATION_JSON)
+                .content("{\"name\":\"bad name\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void deletingPermissionRevokesItFromUsers() throws Exception {
+    createUser("alice");
+    mockMvc
+        .perform(post("/admin/users/alice/permissions/RADARR").header(KEY, KEY_VALUE))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(delete("/admin/permissions/RADARR").header(KEY, KEY_VALUE))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(get("/admin/users/alice/permissions").header(KEY, KEY_VALUE))
+        .andExpect(jsonPath("$.permissions").isEmpty());
+    mockMvc
+        .perform(delete("/admin/permissions/RADARR").header(KEY, KEY_VALUE))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void adminPermissionCannotBeDeleted() throws Exception {
+    mockMvc
+        .perform(delete("/admin/permissions/ADMIN").header(KEY, KEY_VALUE))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void putWithUndefinedPermissionIsBadRequest() throws Exception {
+    createUser("alice");
+    mockMvc
+        .perform(
+            put("/admin/users/alice/permissions")
+                .header(KEY, KEY_VALUE)
+                .contentType(APPLICATION_JSON)
+                .content("{\"permissions\":[\"NOPE\"]}"))
         .andExpect(status().isBadRequest());
   }
 

@@ -13,5 +13,8 @@ public interface UserRepositoryCustom {
   User addPermission(String username, String permission);
 
   User removePermission(String username, String permission);
+
+  /** Revoke a permission from every user (used when a permission is deleted). */
+  void removePermissionFromAll(String permission);
 }
 

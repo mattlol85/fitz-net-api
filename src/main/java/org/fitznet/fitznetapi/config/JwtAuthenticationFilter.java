@@ -7,7 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
-import org.fitznet.fitznetapi.model.Permission;
+import org.fitznet.fitznetapi.model.Permissions;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.service.UserService;
 import org.springframework.security.core.GrantedAuthority;
@@ -61,7 +61,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         Set<String> granted = user.getPermissions() == null ? Set.of() : user.getPermissions();
         List<GrantedAuthority> authorities =
             granted.stream()
-                .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(Permission.AUTHORITY_PREFIX + p))
+                .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(Permissions.authority(p)))
                 .toList();
         UsernamePasswordAuthenticationToken authenticationToken =
             new UsernamePasswordAuthenticationToken(username, null, authorities);

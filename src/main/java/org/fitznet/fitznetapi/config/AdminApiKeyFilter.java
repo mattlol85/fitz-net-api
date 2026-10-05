@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.List;
-import org.fitznet.fitznetapi.model.Permission;
+import org.fitznet.fitznetapi.model.Permissions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -48,7 +48,7 @@ public class AdminApiKeyFilter extends OncePerRequestFilter {
               new UsernamePasswordAuthenticationToken(
                   PRINCIPAL,
                   null,
-                  List.of(new SimpleGrantedAuthority(Permission.ADMIN.authority()))));
+                  List.of(new SimpleGrantedAuthority(Permissions.authority(Permissions.ADMIN)))));
     }
     filterChain.doFilter(request, response);
   }

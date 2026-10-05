@@ -92,6 +92,14 @@ public class UserRepositoryCustomImpl implements UserRepositoryCustom {
     return modifyByUsername(username, new Update().pull("permissions", permission));
   }
 
+  @Override
+  public void removePermissionFromAll(String permission) {
+    mongoTemplate.updateMulti(
+        new Query(Criteria.where("permissions").is(permission)),
+        new Update().pull("permissions", permission),
+        User.class);
+  }
+
   private User modifyByUsername(String username, Update update) {
     return mongoTemplate.findAndModify(
         new Query(Criteria.where("username").is(username)),

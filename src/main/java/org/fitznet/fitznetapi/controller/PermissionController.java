@@ -1,14 +1,17 @@
 package org.fitznet.fitznetapi.controller;
 
 import jakarta.validation.Valid;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import org.fitznet.fitznetapi.config.AdminApiKeyFilter;
+import org.fitznet.fitznetapi.dto.requests.CreatePermissionRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdatePermissionsRequestDto;
 import org.fitznet.fitznetapi.dto.responses.UserPermissionsResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
-import org.fitznet.fitznetapi.model.Permission;
+import org.fitznet.fitznetapi.model.PermissionDefinition;
+import org.fitznet.fitznetapi.model.Permissions;
 import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.service.PermissionService;
 import org.fitznet.fitznetapi.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,10 +38,34 @@ public class PermissionController {
   private static final Logger log = LoggerFactory.getLogger(PermissionController.class);
 
   @Autowired UserService userService;
+  @Autowired PermissionService permissionService;
 
   @GetMapping("/permissions")
-  public List<String> listPermissions() {
-    return Arrays.stream(Permission.values()).map(Enum::name).toList();
+  public List<PermissionDefinition> listPermissions() {
+    return permissionService.list();
+  }
+
+  @PostMapping("/permissions")
+  public PermissionDefinition createPermission(
+      @RequestBody @Valid CreatePermissionRequestDto request) {
+    log.info("Creating permission {} (by {})", request.getName(), caller());
+    PermissionDefinition created =
+        permissionService.create(request.getName(), request.getDescription());
+    if (created == null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Permission already exists");
+    }
+    return created;
+  }
+
+  @DeleteMapping("/permissions/{permission}")
+  public void deletePermission(@PathVariable String permission) {
+    log.info("Deleting permission {} (by {})", permission, caller());
+    if (Permissions.ADMIN.equals(permission)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ADMIN cannot be deleted");
+    }
+    if (!permissionService.delete(permission)) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Permission not found");
+    }
   }
 
   @GetMapping("/users")
@@ -59,26 +86,26 @@ public class PermissionController {
   public UserPermissionsResponseDto setPermissions(
       @PathVariable String username, @RequestBody @Valid UpdatePermissionsRequestDto request) {
     log.info("Setting permissions for {} to {} (by {})", username, request.getPermissions(), caller());
-    guardSelfAdminRemoval(username, request.getPermissions().contains(Permission.ADMIN));
+    requireDefined(request.getPermissions());
+    guardSelfAdminRemoval(username, request.getPermissions().contains(Permissions.ADMIN));
     return toResponse(
-        requireUser(
-            userService.setPermissions(
-                username, request.getPermissions().stream().map(Enum::name).toList())));
+        requireUser(userService.setPermissions(username, request.getPermissions())));
   }
 
   @PostMapping("/users/{username}/permissions/{permission}")
   public UserPermissionsResponseDto addPermission(
-      @PathVariable String username, @PathVariable Permission permission) {
+      @PathVariable String username, @PathVariable String permission) {
+    requireDefined(Set.of(permission));
     log.info("Granting {} to {} (by {})", permission, username, caller());
-    return toResponse(requireUser(userService.addPermission(username, permission.name())));
+    return toResponse(requireUser(userService.addPermission(username, permission)));
   }
 
   @DeleteMapping("/users/{username}/permissions/{permission}")
   public UserPermissionsResponseDto removePermission(
-      @PathVariable String username, @PathVariable Permission permission) {
+      @PathVariable String username, @PathVariable String permission) {
     log.info("Revoking {} from {} (by {})", permission, username, caller());
-    guardSelfAdminRemoval(username, permission != Permission.ADMIN);
-    return toResponse(requireUser(userService.removePermission(username, permission.name())));
+    guardSelfAdminRemoval(username, !Permissions.ADMIN.equals(permission));
+    return toResponse(requireUser(userService.removePermission(username, permission)));
   }
 
   /** JWT admins cannot strip their own ADMIN permission; the API key is exempt (no lockout). */
@@ -89,6 +116,14 @@ public class PermissionController {
         && caller.equals(targetUsername)) {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "You cannot remove your own ADMIN permission");
+    }
+  }
+
+  private void requireDefined(Set<String> requested) {
+    Set<String> unknown = permissionService.unknown(requested);
+    if (!unknown.isEmpty()) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Unknown permission(s): " + String.join(", ", unknown));
     }
   }
 
