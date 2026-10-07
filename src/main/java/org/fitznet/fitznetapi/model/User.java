@@ -2,6 +2,8 @@ package org.fitznet.fitznetapi.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
+import java.util.HashSet;
+import java.util.Set;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -27,4 +29,7 @@ public class User {
   String email;
 
   String boardColor;
+
+  /** Granted {@link Permission} names. Missing in legacy documents, so treat null as empty. */
+  @Builder.Default Set<String> permissions = new HashSet<>();
 }

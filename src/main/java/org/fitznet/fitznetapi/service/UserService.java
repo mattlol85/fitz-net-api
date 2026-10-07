@@ -1,8 +1,10 @@
 package org.fitznet.fitznetapi.service;
 
 import io.micrometer.core.instrument.Timer;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.metrics.FitzNetMetrics;
@@ -110,6 +112,30 @@ public class UserService {
       return passwordMatches;
     } catch (RuntimeException ex) {
       fitzNetMetrics.recordUserOperation("login", "error", sample);
+      throw ex;
+    }
+  }
+
+  public User setPermissions(String username, Collection<String> permissions) {
+    return updatePermissions("set_permissions", () -> userRepository.setPermissions(username, permissions));
+  }
+
+  public User addPermission(String username, String permission) {
+    return updatePermissions("add_permission", () -> userRepository.addPermission(username, permission));
+  }
+
+  public User removePermission(String username, String permission) {
+    return updatePermissions("remove_permission", () -> userRepository.removePermission(username, permission));
+  }
+
+  private User updatePermissions(String operation, Supplier<User> action) {
+    Timer.Sample sample = fitzNetMetrics.startSample();
+    try {
+      User user = action.get();
+      fitzNetMetrics.recordUserOperation(operation, user == null ? "not_found" : "success", sample);
+      return user;
+    } catch (RuntimeException ex) {
+      fitzNetMetrics.recordUserOperation(operation, "error", sample);
       throw ex;
     }
   }

@@ -20,6 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 class JwtAuthenticationFilterTest {
 
   @Mock private JwtUtil jwtUtil;
+  @Mock private org.fitznet.fitznetapi.service.UserService userService;
 
   @InjectMocks private JwtAuthenticationFilter jwtAuthenticationFilter;
 
@@ -55,11 +56,52 @@ class JwtAuthenticationFilterTest {
 
     when(jwtUtil.extractUsername(token)).thenReturn(username);
     when(jwtUtil.validateToken(token)).thenReturn(true);
+    when(userService.readByUsername(username))
+        .thenReturn(
+            org.fitznet.fitznetapi.model.User.builder()
+                .username(username)
+                .permissions(new java.util.HashSet<>(java.util.Set.of("RADARR")))
+                .build());
 
     jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
 
     assertNotNull(SecurityContextHolder.getContext().getAuthentication());
     assertEquals(username, SecurityContextHolder.getContext().getAuthentication().getPrincipal());
+    assertEquals(
+        java.util.List.of("PERM_RADARR"),
+        SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+            .map(Object::toString)
+            .toList());
+    verify(filterChain, times(1)).doFilter(request, response);
+  }
+
+  @Test
+  void doFilterInternalShouldContinueUnauthenticatedWhenUserLookupFails()
+      throws ServletException, IOException {
+    String token = "valid.jwt.token";
+    request.addHeader("Authorization", "Bearer " + token);
+    when(jwtUtil.extractUsername(token)).thenReturn("testuser");
+    when(jwtUtil.validateToken(token)).thenReturn(true);
+    when(userService.readByUsername("testuser")).thenThrow(new RuntimeException("mongo down"));
+
+    jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+    assertNull(SecurityContextHolder.getContext().getAuthentication());
+    verify(filterChain, times(1)).doFilter(request, response);
+  }
+
+  @Test
+  void doFilterInternalShouldNotAuthenticateWhenUserNoLongerExists()
+      throws ServletException, IOException {
+    String token = "valid.jwt.token";
+    request.addHeader("Authorization", "Bearer " + token);
+    when(jwtUtil.extractUsername(token)).thenReturn("ghost");
+    when(jwtUtil.validateToken(token)).thenReturn(true);
+    when(userService.readByUsername("ghost")).thenReturn(null);
+
+    jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+    assertNull(SecurityContextHolder.getContext().getAuthentication());
     verify(filterChain, times(1)).doFilter(request, response);
   }
 

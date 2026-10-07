@@ -1,9 +1,12 @@
 package org.fitznet.fitznetapi.controller;
 
 import jakarta.validation.Valid;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import jakarta.validation.constraints.NotBlank;
+import org.fitznet.fitznetapi.config.AdminApiKeyFilter;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
@@ -17,6 +20,7 @@ import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
 import org.fitznet.fitznetapi.util.JwtUtil;
 import org.slf4j.Logger;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -53,6 +57,7 @@ public class UserController {
     return toUserResponse(saved);
   }
 
+  @PreAuthorize("hasAuthority('PERM_ADMIN')")
   @PostMapping("/user/read")
   public UserResponseDto readUser(@RequestBody @NotBlank String username) {
     log.info("Request for /user/read - {}", username);
@@ -60,6 +65,17 @@ public class UserController {
     return user != null ? toUserResponse(user) : null;
   }
 
+  @GetMapping("/user/me")
+  public UserResponseDto me() {
+    String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
+    User user = userService.readByUsername(currentUsername);
+    if (user == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+    }
+    return toUserResponse(user);
+  }
+
+  @PreAuthorize("hasAuthority('PERM_ADMIN')")
   @GetMapping("/user/readAll")
   public List<UserResponseDto> readAllUsers() {
     log.info("Request for /user/readAll");
@@ -93,7 +109,7 @@ public class UserController {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
     }
 
-    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail(), updatedUser.getBoardColor());
+    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail(), updatedUser.getBoardColor(), permissionsOf(updatedUser));
   }
 
   @PutMapping("/user/update")
@@ -133,7 +149,7 @@ public class UserController {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
     }
 
-    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail(), updatedUser.getBoardColor());
+    return new UpdateProfileResponseDto(true, "Profile updated successfully", updatedUser.getUsername(), updatedUser.getEmail(), updatedUser.getBoardColor(), permissionsOf(updatedUser));
   }
 
   @PostMapping("/user/login")
@@ -144,8 +160,8 @@ public class UserController {
 
     if (isValid) {
       User user = userService.readByUsername(loginRequest.getUsername());
-      String token = jwtUtil.generateToken(user.getUsername());
-      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail(), token, user.getBoardColor());
+      String token = jwtUtil.generateToken(user.getUsername(), permissionsOf(user));
+      return new LoginResponseDto(true, "Login successful", user.getUsername(), user.getEmail(), token, user.getBoardColor(), permissionsOf(user));
     } else {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
     }
@@ -169,11 +185,20 @@ public class UserController {
     return null != possibleUser;
   }
 
-  private static UserResponseDto toUserResponse(User user) {
-    return new UserResponseDto(user.getId(), user.getUsername(), user.getEmail(), user.getBoardColor());
+  static Set<String> permissionsOf(User user) {
+    return user.getPermissions() == null ? new HashSet<>() : user.getPermissions();
+  }
+
+  static UserResponseDto toUserResponse(User user) {
+    return new UserResponseDto(
+        user.getId(), user.getUsername(), user.getEmail(), user.getBoardColor(), permissionsOf(user));
   }
 
   private void performRequestValidations(UserDTO user) {
+    if (AdminApiKeyFilter.PRINCIPAL.equalsIgnoreCase(user.getUsername())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username is reserved");
+    }
+
     if (doesUserAlreadyExist(user)) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
     }

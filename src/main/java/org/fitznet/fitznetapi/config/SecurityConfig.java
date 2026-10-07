@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -19,15 +20,20 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
 
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final AdminApiKeyFilter adminApiKeyFilter;
   private final FitzNetMetrics fitzNetMetrics;
 
   @Autowired
   public SecurityConfig(
-      JwtAuthenticationFilter jwtAuthenticationFilter, FitzNetMetrics fitzNetMetrics) {
+      JwtAuthenticationFilter jwtAuthenticationFilter,
+      AdminApiKeyFilter adminApiKeyFilter,
+      FitzNetMetrics fitzNetMetrics) {
     this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    this.adminApiKeyFilter = adminApiKeyFilter;
     this.fitzNetMetrics = fitzNetMetrics;
   }
 
@@ -74,10 +80,11 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers(HttpMethod.DELETE, "/node/*")
                     .permitAll()
-                    .requestMatchers("/user/read", "/user/readAll", "/user/update", "/user/delete")
+                    .requestMatchers("/user/read", "/user/readAll", "/user/update", "/user/delete", "/user/me")
                     .authenticated()
                     .anyRequest()
                     .authenticated())
+        .addFilterBefore(adminApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
     return http.build();
   }
