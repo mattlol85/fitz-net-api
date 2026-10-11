@@ -7,6 +7,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.fitznet.fitznetapi.dto.NodeDto;
+import org.fitznet.fitznetapi.dto.requests.ChatMessageDto;
+import org.fitznet.fitznetapi.dto.requests.ChatRequestDto;
 import org.fitznet.fitznetapi.dto.requests.NodeRegisterRequestDto;
 import org.fitznet.fitznetapi.dto.responses.ChatResponseDto;
 import org.fitznet.fitznetapi.dto.responses.NodeRegisterResponseDto;
@@ -140,18 +142,42 @@ public class AiNodeService {
     return new ChatTarget(nodeId, node.getAddress(), model);
   }
 
-  public void streamChat(ChatTarget target, String prompt, OutputStream out) {
-    ollamaChatStreamer.stream(target, prompt, out);
+  /**
+   * The conversation to send: the supplied history when present, else the single {@code prompt}.
+   * The last turn must be from the user.
+   */
+  public static List<ChatMessageDto> toMessages(ChatRequestDto request) {
+    List<ChatMessageDto> history = request.getMessages();
+    if (history != null && !history.isEmpty()) {
+      if (!"user".equals(history.get(history.size() - 1).getRole())) {
+        throw new ResponseStatusException(
+            HttpStatus.BAD_REQUEST, "The last message must be from the user");
+      }
+      return history;
+    }
+    String prompt = request.getPrompt();
+    if (prompt == null || prompt.isBlank()) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Either prompt or messages is required");
+    }
+    return List.of(new ChatMessageDto("user", prompt));
   }
 
-  public ChatResponseDto chat(String nodeId, String prompt, String requestedModel) {
+  public void streamChat(ChatTarget target, List<ChatMessageDto> messages, OutputStream out) {
+    ollamaChatStreamer.stream(target, messages, out);
+  }
+
+  public ChatResponseDto chat(String nodeId, List<ChatMessageDto> messages, String requestedModel) {
     ChatTarget target = resolveChatTarget(nodeId, requestedModel);
     String model = target.model();
 
     Map<String, Object> ollamaRequest =
         Map.of(
             "model", model,
-            "messages", List.of(Map.of("role", "user", "content", prompt)),
+            "messages",
+                messages.stream()
+                    .map(m -> Map.of("role", m.getRole(), "content", m.getContent()))
+                    .toList(),
             "stream", false);
 
     try {

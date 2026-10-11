@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.fitznet.fitznetapi.dto.NodeDto;
+import org.fitznet.fitznetapi.dto.requests.ChatMessageDto;
 import org.fitznet.fitznetapi.dto.requests.ChatRequestDto;
 import org.fitznet.fitznetapi.dto.requests.NodeHeartbeatRequestDto;
 import org.fitznet.fitznetapi.dto.requests.NodeRegisterRequestDto;
@@ -62,7 +63,7 @@ public class NodeController {
   @PostMapping("/node/{id}/chat")
   public ChatResponseDto chat(@PathVariable String id, @RequestBody @Valid ChatRequestDto request) {
     log.info("Request at /node/{}/chat", id);
-    return aiNodeService.chat(id, request.getPrompt(), request.getModel());
+    return aiNodeService.chat(id, AiNodeService.toMessages(request), request.getModel());
   }
 
   /**
@@ -76,13 +77,14 @@ public class NodeController {
       HttpServletResponse response)
       throws IOException {
     log.info("Request at /node/{}/chat/stream", id);
+    List<ChatMessageDto> messages = AiNodeService.toMessages(request);
     ChatTarget target = aiNodeService.resolveChatTarget(id, request.getModel());
     response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
     // Tell nginx not to buffer, so tokens reach the browser as they arrive.
     response.setHeader("X-Accel-Buffering", "no");
-    aiNodeService.streamChat(target, request.getPrompt(), response.getOutputStream());
+    aiNodeService.streamChat(target, messages, response.getOutputStream());
   }
 
   @DeleteMapping("/node/{id}")
