@@ -1,5 +1,6 @@
 package org.fitznet.fitznetapi.service;
 
+import java.io.OutputStream;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
@@ -30,17 +31,20 @@ public class AiNodeService {
   private final NodeEnrollmentService nodeEnrollmentService;
   private final PasswordEncoder passwordEncoder;
   private final RestClient ollamaRestClient;
+  private final OllamaChatStreamer ollamaChatStreamer;
   private final SecureRandom secureRandom = new SecureRandom();
 
   public AiNodeService(
       AiNodeRepository aiNodeRepository,
       NodeEnrollmentService nodeEnrollmentService,
       PasswordEncoder passwordEncoder,
-      RestClient ollamaRestClient) {
+      RestClient ollamaRestClient,
+      OllamaChatStreamer ollamaChatStreamer) {
     this.aiNodeRepository = aiNodeRepository;
     this.nodeEnrollmentService = nodeEnrollmentService;
     this.passwordEncoder = passwordEncoder;
     this.ollamaRestClient = ollamaRestClient;
+    this.ollamaChatStreamer = ollamaChatStreamer;
   }
 
   public NodeRegisterResponseDto register(NodeRegisterRequestDto request) {
@@ -109,7 +113,11 @@ public class AiNodeService {
     logger.info("Deregistered AI node: {} ({})", node.getName(), nodeId);
   }
 
-  public ChatResponseDto chat(String nodeId, String prompt, String requestedModel) {
+  /**
+   * Looks up the node and picks the model to run. Throws before anything is written so a streamed
+   * response can still fail with a proper HTTP status.
+   */
+  public ChatTarget resolveChatTarget(String nodeId, String requestedModel) {
     AiNode node =
         aiNodeRepository
             .findById(nodeId)
@@ -129,6 +137,16 @@ public class AiNodeService {
         (requestedModel != null && availableModels.contains(requestedModel))
             ? requestedModel
             : availableModels.get(0);
+    return new ChatTarget(nodeId, node.getAddress(), model);
+  }
+
+  public void streamChat(ChatTarget target, String prompt, OutputStream out) {
+    ollamaChatStreamer.stream(target, prompt, out);
+  }
+
+  public ChatResponseDto chat(String nodeId, String prompt, String requestedModel) {
+    ChatTarget target = resolveChatTarget(nodeId, requestedModel);
+    String model = target.model();
 
     Map<String, Object> ollamaRequest =
         Map.of(
@@ -144,7 +162,7 @@ public class AiNodeService {
       Map<String, Object> ollamaResponse =
           ollamaRestClient
               .post()
-              .uri("http://" + node.getAddress() + "/api/chat")
+              .uri("http://" + target.address() + "/api/chat")
               .body(ollamaRequest)
               .retrieve()
               .body(Map.class);
@@ -156,7 +174,8 @@ public class AiNodeService {
 
       return new ChatResponseDto(reply, model, nodeId);
     } catch (RestClientException ex) {
-      logger.warn("Failed to reach node {} at {}: {}", nodeId, node.getAddress(), ex.getMessage());
+      logger.warn(
+          "Failed to reach node {} at {}: {}", nodeId, target.address(), ex.getMessage());
       throw new ResponseStatusException(
           HttpStatus.BAD_GATEWAY, "Could not reach node: " + ex.getMessage());
     }

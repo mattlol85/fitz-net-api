@@ -1,6 +1,9 @@
 package org.fitznet.fitznetapi.controller;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.fitznet.fitznetapi.dto.NodeDto;
 import org.fitznet.fitznetapi.dto.requests.ChatRequestDto;
@@ -10,10 +13,13 @@ import org.fitznet.fitznetapi.dto.responses.ChatResponseDto;
 import org.fitznet.fitznetapi.dto.responses.NodeRegisterResponseDto;
 import org.fitznet.fitznetapi.model.NodeStatus;
 import org.fitznet.fitznetapi.service.AiNodeService;
+import org.fitznet.fitznetapi.service.ChatTarget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -57,6 +63,26 @@ public class NodeController {
   public ChatResponseDto chat(@PathVariable String id, @RequestBody @Valid ChatRequestDto request) {
     log.info("Request at /node/{}/chat", id);
     return aiNodeService.chat(id, request.getPrompt(), request.getModel());
+  }
+
+  /**
+   * Streaming variant of {@link #chat}: Server-Sent Events (meta, token*, done | error). Written
+   * synchronously to the servlet response so there's no async dispatch for the JWT filter to miss.
+   */
+  @PostMapping("/node/{id}/chat/stream")
+  public void chatStream(
+      @PathVariable String id,
+      @RequestBody @Valid ChatRequestDto request,
+      HttpServletResponse response)
+      throws IOException {
+    log.info("Request at /node/{}/chat/stream", id);
+    ChatTarget target = aiNodeService.resolveChatTarget(id, request.getModel());
+    response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
+    response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+    response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
+    // Tell nginx not to buffer, so tokens reach the browser as they arrive.
+    response.setHeader("X-Accel-Buffering", "no");
+    aiNodeService.streamChat(target, request.getPrompt(), response.getOutputStream());
   }
 
   @DeleteMapping("/node/{id}")
