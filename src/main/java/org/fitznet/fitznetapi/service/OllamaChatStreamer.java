@@ -12,8 +12,10 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.fitznet.fitznetapi.dto.requests.ChatMessageDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,9 +28,9 @@ import org.springframework.stereotype.Component;
  * at 60s / 100s) for as long as the model is producing tokens. Events:
  *
  * <ul>
- *   <li>{@code meta} - {@code {"model","nodeId"}}, sent immediately
+ *   <li>{@code meta} - {@code {"model","nodeId","contextLength"}}, sent immediately
  *   <li>{@code token} - {@code {"content"}}, one per reply chunk
- *   <li>{@code done} - {@code {}}, generation finished
+ *   <li>{@code done} - {@code {"promptTokens","completionTokens","contextLength"}}, finished
  *   <li>{@code error} - {@code {"message"}}, terminal failure
  * </ul>
  *
@@ -44,28 +46,41 @@ public class OllamaChatStreamer {
   private static final Logger logger = LoggerFactory.getLogger(OllamaChatStreamer.class);
 
   private final ObjectMapper objectMapper;
+  private final OllamaModelInfo modelInfo;
   private final Duration connectTimeout;
   private final Duration readTimeout;
   private final Duration maxStreamDuration;
 
   public OllamaChatStreamer(
       ObjectMapper objectMapper,
+      OllamaModelInfo modelInfo,
       @Value("${ollama.connect-timeout:5s}") Duration connectTimeout,
       @Value("${ollama.read-timeout:180s}") Duration readTimeout,
       @Value("${ollama.max-stream-duration:10m}") Duration maxStreamDuration) {
     this.objectMapper = objectMapper;
+    this.modelInfo = modelInfo;
     this.connectTimeout = connectTimeout;
     this.readTimeout = readTimeout;
     this.maxStreamDuration = maxStreamDuration;
   }
 
   public void stream(ChatTarget target, String prompt, OutputStream out) {
+    stream(target, List.of(new ChatMessageDto("user", prompt)), out);
+  }
+
+  public void stream(ChatTarget target, List<ChatMessageDto> messages, OutputStream out) {
     SseWriter sse = new SseWriter(out);
     long deadline = System.nanoTime() + maxStreamDuration.toNanos();
     HttpURLConnection connection = null;
     try {
-      sse.event("meta", Map.of("model", target.model(), "nodeId", target.nodeId()));
-      connection = openChat(target, prompt);
+      int contextLength = modelInfo.effectiveContext(target);
+      sse.event(
+          "meta",
+          Map.of(
+              "model", target.model(),
+              "nodeId", target.nodeId(),
+              "contextLength", contextLength));
+      connection = openChat(target, messages, contextLength);
       int status = connection.getResponseCode();
       if (status / 100 != 2) {
         logger.warn("Node {} returned HTTP {} for chat", target.nodeId(), status);
@@ -104,7 +119,11 @@ public class OllamaChatStreamer {
             sse.event("token", Map.of("content", content));
           }
           if (chunk.path("done").asBoolean(false)) {
-            sse.event("done", Map.of());
+            Map<String, Object> usage = new LinkedHashMap<>();
+            usage.put("promptTokens", chunk.path("prompt_eval_count").asInt(0));
+            usage.put("completionTokens", chunk.path("eval_count").asInt(0));
+            usage.put("contextLength", contextLength);
+            sse.event("done", usage);
             return;
           }
         }
@@ -127,12 +146,17 @@ public class OllamaChatStreamer {
     }
   }
 
-  private HttpURLConnection openChat(ChatTarget target, String prompt) throws IOException {
+  private HttpURLConnection openChat(
+      ChatTarget target, List<ChatMessageDto> messages, int contextLength) throws IOException {
     Map<String, Object> request =
         Map.of(
             "model", target.model(),
-            "messages", List.of(Map.of("role", "user", "content", prompt)),
-            "stream", true);
+            "messages",
+                messages.stream()
+                    .map(m -> Map.of("role", m.getRole(), "content", m.getContent()))
+                    .toList(),
+            "stream", true,
+            "options", Map.of("num_ctx", contextLength));
     HttpURLConnection connection =
         (HttpURLConnection)
             URI.create("http://" + target.address() + "/api/chat").toURL().openConnection();

@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.fitznet.fitznetapi.dto.requests.ChatMessageDto;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -54,7 +55,7 @@ class OllamaChatStreamerTest {
             + "event: token\ndata: {\"content\":\"Hello\"}\n\n"
             + "event: token\ndata: {\"content\":\" world\"}\n\n"
             + ":\n\n"
-            + "event: done\ndata: {}\n\n",
+            + "event: done\ndata: {\"promptTokens\":0,\"completionTokens\":0,\"contextLength\":8192}\n\n",
         sse.substring(meta.length()));
     assertTrue(receivedBody.contains("\"stream\":true"));
     assertTrue(receivedBody.contains("\"model\":\"qwen3:14b\""));
@@ -135,9 +136,62 @@ class OllamaChatStreamerTest {
     assertTrue(upstreamDropped.await(5, TimeUnit.SECONDS), "Ollama connection was not dropped");
   }
 
+  @Test
+  void stream_sendsFullHistoryAndNumCtxAndReportsUsage() throws Exception {
+    startOllama(
+        exchange ->
+            respondNdjson(
+                exchange,
+                """
+                {"message":{"role":"assistant","content":"Bob"},"done":false}
+                {"message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":42,"eval_count":7}
+                """));
+    fakeOllama.createContext(
+        "/api/show",
+        exchange ->
+            respondNdjson(exchange, "{\"model_info\":{\"llama.context_length\":4096}}"));
+
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer(Duration.ofSeconds(5), Duration.ofMinutes(1))
+        .stream(
+            target(),
+            java.util.List.of(
+                new ChatMessageDto("user", "I am Bob"),
+                new ChatMessageDto("assistant", "Hi Bob"),
+                new ChatMessageDto("user", "Who am I?")),
+            out);
+    String sse = out.toString(StandardCharsets.UTF_8);
+
+    assertTrue(sse.contains("\"contextLength\":4096"), sse);
+    assertTrue(sse.contains("\"promptTokens\":42,\"completionTokens\":7"), sse);
+    assertTrue(receivedBody.contains("\"num_ctx\":4096"), receivedBody);
+    int first = receivedBody.indexOf("I am Bob");
+    int second = receivedBody.indexOf("Hi Bob");
+    int third = receivedBody.indexOf("Who am I?");
+    assertTrue(first >= 0 && first < second && second < third, receivedBody);
+  }
+
+  @Test
+  void stream_capsContextAtConfiguredMax() throws Exception {
+    startOllama(exchange -> respondNdjson(exchange, "{\"done\":true}\n"));
+    fakeOllama.createContext(
+        "/api/show",
+        exchange ->
+            respondNdjson(exchange, "{\"model_info\":{\"llama.context_length\":131072}}"));
+
+    String sse = runStream(streamer(Duration.ofSeconds(5), Duration.ofMinutes(1)));
+
+    assertTrue(sse.contains("\"contextLength\":8192"), sse);
+  }
+
   private OllamaChatStreamer streamer(Duration readTimeout, Duration maxStreamDuration) {
+    ObjectMapper mapper = new ObjectMapper();
     return new OllamaChatStreamer(
-        new ObjectMapper(), Duration.ofSeconds(2), readTimeout, maxStreamDuration);
+        mapper,
+        new OllamaModelInfo(mapper, Duration.ofSeconds(2), 8192, Duration.ofMinutes(10)),
+        Duration.ofSeconds(2),
+        readTimeout,
+        maxStreamDuration);
   }
 
   private ChatTarget target() {

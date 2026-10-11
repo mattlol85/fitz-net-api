@@ -113,7 +113,44 @@ class NodeChatStreamIntegrationTest {
                     Matchers.allOf(
                         Matchers.startsWith("event: meta\n"),
                         Matchers.containsString("event: token\ndata: {\"content\":\"pong\"}\n\n"),
-                        Matchers.endsWith("event: done\ndata: {}\n\n"))));
+                        Matchers.containsString("event: done\ndata: {\"promptTokens\":"))));
+  }
+
+  @Test
+  void chatStream_acceptsHistory() throws Exception {
+    mockMvc
+        .perform(
+            post("/node/node-1/chat/stream")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"},"
+                        + "{\"role\":\"assistant\",\"content\":\"hello\"},"
+                        + "{\"role\":\"user\",\"content\":\"again\"}]}"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(Matchers.containsString("event: token")));
+  }
+
+  @Test
+  void chatStream_rejectsMissingPromptAndMessages() throws Exception {
+    mockMvc
+        .perform(
+            post("/node/node-1/chat/stream")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void chatStream_rejectsHistoryEndingWithAssistant() throws Exception {
+    mockMvc
+        .perform(
+            post("/node/node-1/chat/stream")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"messages\":[{\"role\":\"assistant\",\"content\":\"hello\"}]}"))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
