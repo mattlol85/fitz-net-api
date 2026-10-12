@@ -43,6 +43,7 @@ class NodeChatStreamIntegrationTest {
 
   private HttpServer fakeOllama;
   private String token;
+  private String plainToken;
 
   @BeforeEach
   void setUp() throws Exception {
@@ -67,9 +68,17 @@ class NodeChatStreamIntegrationTest {
             .username("chatter")
             .email("chatter@example.com")
             .password("x")
-            .permissions(new HashSet<>(Set.of("USER")))
+            .permissions(new HashSet<>(Set.of("USER", "AI_USER")))
             .build());
     token = jwtUtil.generateToken("chatter");
+    userRepository.save(
+        User.builder()
+            .username("plain")
+            .email("plain@example.com")
+            .password("x")
+            .permissions(new HashSet<>(Set.of("USER")))
+            .build());
+    plainToken = jwtUtil.generateToken("plain");
 
     aiNodeRepository.deleteAll();
     aiNodeRepository.save(
@@ -94,6 +103,17 @@ class NodeChatStreamIntegrationTest {
         .perform(
             post("/node/node-1/chat/stream").contentType(MediaType.APPLICATION_JSON).content(BODY))
         .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void chatStream_forbiddenWithoutAiUserPermission() throws Exception {
+    mockMvc
+        .perform(
+            post("/node/node-1/chat/stream")
+                .header("Authorization", "Bearer " + plainToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(BODY))
+        .andExpect(status().isForbidden());
   }
 
   @Test

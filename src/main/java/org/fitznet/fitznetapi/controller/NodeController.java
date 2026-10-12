@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -60,6 +61,7 @@ public class NodeController {
     return aiNodeService.listNodes();
   }
 
+  @PreAuthorize("hasAnyAuthority('PERM_AI_USER','PERM_ADMIN')")
   @PostMapping("/node/{id}/chat")
   public ChatResponseDto chat(@PathVariable String id, @RequestBody @Valid ChatRequestDto request) {
     log.info("Request at /node/{}/chat", id);
@@ -70,6 +72,7 @@ public class NodeController {
    * Streaming variant of {@link #chat}: Server-Sent Events (meta, token*, done | error). Written
    * synchronously to the servlet response so there's no async dispatch for the JWT filter to miss.
    */
+  @PreAuthorize("hasAnyAuthority('PERM_AI_USER','PERM_ADMIN')")
   @PostMapping("/node/{id}/chat/stream")
   public void chatStream(
       @PathVariable String id,

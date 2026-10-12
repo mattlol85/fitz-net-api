@@ -7,6 +7,7 @@ package org.fitznet.fitznetapi.model;
 public final class Permissions {
 
   public static final String ADMIN = "ADMIN";
+  public static final String AI_USER = "AI_USER";
   public static final String AUTHORITY_PREFIX = "PERM_";
 
   private Permissions() {}
