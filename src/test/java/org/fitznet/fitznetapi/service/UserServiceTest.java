@@ -239,6 +239,65 @@ class UserServiceTest {
     verify(userRepository, times(1)).findAll();
   }
 
+  @Test
+  void shouldVerifyPasswordCaseInsensitively() {
+    User user =
+        User.builder()
+            .username("zmat")
+            .password("encodedPassword")
+            .email("zmat@example.com")
+            .build();
+    when(userRepository.findByUsername("zmat")).thenReturn(user);
+    when(passwordEncoder.matches("password", "encodedPassword")).thenReturn(true);
+
+    boolean isMatch = userService.verifyPassword("ZMat", "password");
+
+    assertTrue(isMatch);
+    verify(userRepository, times(1)).findByUsername("zmat");
+  }
+
+  @Test
+  void shouldNormalizeUsernameOnSave() {
+    User user =
+        User.builder().username("  MixedUser ").password("password").email("mixed@example.com").build();
+
+    when(passwordEncoder.encode("password")).thenReturn("encodedPassword");
+    when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+    User savedUser = userService.saveUser(user);
+
+    assertEquals("mixeduser", savedUser.getUsername());
+    verify(userRepository, times(1)).save(user);
+  }
+
+  @Test
+  void shouldNormalizeUpdatedUsername() {
+    UpdateUserRequestDto updateRequest =
+        new UpdateUserRequestDto("TestUser", " UpdatedUser ", null, null);
+    User updatedUser = User.builder().username("updateduser").password("password").build();
+    when(userRepository.findAndModifyUser(any(UpdateUserRequestDto.class))).thenReturn(updatedUser);
+
+    User result = userService.updateUser(updateRequest);
+
+    assertNotNull(result);
+    assertEquals("testuser", updateRequest.getUsername());
+    assertEquals("updateduser", updateRequest.getUpdatedUsername());
+    verify(userRepository, times(1)).findAndModifyUser(updateRequest);
+  }
+
+  @Test
+  void shouldReadByUsernameCaseInsensitively() {
+    User user =
+        User.builder().username("zmat").password("password").email("zmat@example.com").build();
+    when(userRepository.findByUsername("zmat")).thenReturn(user);
+
+    User foundUser = userService.readByUsername("ZMat");
+
+    assertNotNull(foundUser);
+    assertEquals("zmat", foundUser.getUsername());
+    verify(userRepository, times(1)).findByUsername("zmat");
+  }
+
   private void assertCounterCount(String name, double expectedCount, String... tags) {
     Counter counter = meterRegistry.find(name).tags(tags).counter();
     assertNotNull(counter);
