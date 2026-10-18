@@ -69,8 +69,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             granted.stream()
                 .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(Permissions.authority(p)))
                 .toList();
+        // Principal is the stored (canonical) username, not the raw token subject, so tokens
+        // issued before usernames were normalized still resolve to a canonical name downstream.
         UsernamePasswordAuthenticationToken authenticationToken =
-            new UsernamePasswordAuthenticationToken(username, null, authorities);
+            new UsernamePasswordAuthenticationToken(user.getUsername(), null, authorities);
         authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authenticationToken);
         log.debug("JWT authentication successful for user: {}", username);
