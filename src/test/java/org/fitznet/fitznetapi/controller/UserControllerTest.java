@@ -8,6 +8,7 @@ import static org.mockito.MockitoAnnotations.openMocks;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.fitznet.fitznetapi.dto.UserDTO;
 import org.fitznet.fitznetapi.dto.requests.LoginRequestDto;
 import org.fitznet.fitznetapi.dto.requests.UpdateProfileRequestDto;
@@ -15,7 +16,9 @@ import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.dto.responses.DeleteUserResponseDto;
 import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
+import org.fitznet.fitznetapi.config.GlobalExceptionHandler;
 import org.fitznet.fitznetapi.dto.responses.UserResponseDto;
+import org.fitznet.fitznetapi.metrics.FitzNetMetrics;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
@@ -26,7 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.server.ResponseStatusException;
@@ -388,5 +393,121 @@ class UserControllerTest {
     assertTrue(response.isSuccess());
     assertEquals("hsl(42,72%,50%)", response.getBoardColor(),
         "Update profile response must include the user's boardColor");
+  }
+
+  @Test
+  void shouldReturnConflictWhenUsernameDiffersOnlyByCase() {
+    UserDTO userDTO = new UserDTO("MattLol85", "test@example.com", "testPassword");
+    when(userRepository.findByUsername("mattlol85")).thenReturn(new User());
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.createUser(userDTO));
+
+    assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+    assertEquals("Username already taken", exception.getReason());
+    verify(userService, never()).saveUser(any(User.class));
+  }
+
+  @Test
+  void shouldLoginWithDifferentCasing() {
+    LoginRequestDto loginRequest = new LoginRequestDto("MattLol85", "testPassword123");
+    User user =
+        User.builder()
+            .username("mattlol85")
+            .email("test@example.com")
+            .password("$2a$10$hashedPassword")
+            .build();
+
+    when(userService.verifyPassword("MattLol85", "testPassword123")).thenReturn(true);
+    when(userService.readByUsername("MattLol85")).thenReturn(user);
+    when(jwtUtil.generateToken(eq("mattlol85"), any())).thenReturn("mock-jwt-token");
+
+    LoginResponseDto response = userController.login(loginRequest);
+
+    assertTrue(response.isSuccess());
+    assertEquals("mattlol85", response.getUsername());
+    verify(jwtUtil, times(1)).generateToken(eq("mattlol85"), any());
+  }
+
+  @Test
+  void shouldRejectRenameToExistingUsernameIgnoringCase() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateProfileRequestDto profileRequest =
+        new UpdateProfileRequestDto("ZMat", "test@example.com", null);
+    when(userRepository.findByUsername("zmat")).thenReturn(new User());
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.updateProfile(profileRequest));
+
+    assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+    assertEquals("Username already taken", exception.getReason());
+    verify(userService, never()).updateUser(any(UpdateUserRequestDto.class));
+  }
+
+  @Test
+  void shouldRejectPatchRenameToExistingUsernameIgnoringCase() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateUserRequestDto updateUserRequestDto = new UpdateUserRequestDto(null, "ZMat", null, null);
+    when(userRepository.findByUsername("zmat")).thenReturn(new User());
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.updateUser(updateUserRequestDto));
+
+    assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+    assertEquals("Username already taken", exception.getReason());
+    verify(userService, never()).updateUser(any(UpdateUserRequestDto.class));
+  }
+
+  @Test
+  void shouldRejectRenameToReservedName() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    UpdateProfileRequestDto profileRequest =
+        new UpdateProfileRequestDto("Admin-API-Key", "test@example.com", null);
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.updateProfile(profileRequest));
+
+    assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+    assertEquals("Username is reserved", exception.getReason());
+    verify(userService, never()).updateUser(any(UpdateUserRequestDto.class));
+  }
+
+  @Test
+  void shouldAllowRenameThatOnlyChangesCaseOfOwnName() {
+    UsernamePasswordAuthenticationToken auth =
+        new UsernamePasswordAuthenticationToken("mattlol85", null, null);
+    SecurityContextHolder.getContext().setAuthentication(auth);
+
+    // Only the case of the caller's own name changes, so nothing is left to update.
+    UpdateProfileRequestDto profileRequest = new UpdateProfileRequestDto("MattLol85", null, null);
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> userController.updateProfile(profileRequest));
+
+    assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+    assertEquals("No fields to update", exception.getReason());
+    verify(userService, never()).updateUser(any(UpdateUserRequestDto.class));
+  }
+
+  @Test
+  void shouldMapDuplicateKeyToConflict() {
+    GlobalExceptionHandler handler = new GlobalExceptionHandler(mock(FitzNetMetrics.class));
+
+    ResponseEntity<Map<String, Object>> response =
+        handler.handleDuplicateKey(new DuplicateKeyException("E11000 duplicate key error"));
+
+    assertEquals(HttpStatus.CONFLICT, response.getStatusCode());
+    assertEquals(false, response.getBody().get("success"));
+    assertEquals("Username already taken", response.getBody().get("message"));
+    assertEquals(409, response.getBody().get("status"));
   }
 }

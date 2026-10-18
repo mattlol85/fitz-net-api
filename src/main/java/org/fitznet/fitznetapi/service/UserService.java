@@ -10,6 +10,7 @@ import org.fitznet.fitznetapi.dto.requests.UpdateUserRequestDto;
 import org.fitznet.fitznetapi.metrics.FitzNetMetrics;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
+import org.fitznet.fitznetapi.util.UsernameNormalizer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class UserService {
   public User saveUser(User user) {
     Timer.Sample sample = fitzNetMetrics.startSample();
     try {
+      user.setUsername(UsernameNormalizer.normalize(user.getUsername()));
       log.info("Saving user... - {}", user.getUsername());
       user.setPassword(passwordEncoder.encode(user.getPassword()));
       if (user.getBoardColor() == null || user.getBoardColor().isBlank()) {
@@ -61,8 +63,9 @@ public class UserService {
   public void deleteUser(String username) {
     Timer.Sample sample = fitzNetMetrics.startSample();
     try {
-      log.info("Deleting user - {}", username);
-      userRepository.deleteByUsername(username);
+      String normalized = UsernameNormalizer.normalize(username);
+      log.info("Deleting user - {}", normalized);
+      userRepository.deleteByUsername(normalized);
       fitzNetMetrics.recordUserOperation("delete", "success", sample);
     } catch (RuntimeException ex) {
       fitzNetMetrics.recordUserOperation("delete", "error", sample);
@@ -71,12 +74,19 @@ public class UserService {
   }
 
   public User readByUsername(String username) {
-    return userRepository.findByUsername(username);
+    return userRepository.findByUsername(UsernameNormalizer.normalize(username));
   }
 
   public User updateUser(UpdateUserRequestDto updateRequest) {
     Timer.Sample sample = fitzNetMetrics.startSample();
     try {
+      if (updateRequest.getUsername() != null) {
+        updateRequest.setUsername(UsernameNormalizer.normalize(updateRequest.getUsername()));
+      }
+      if (updateRequest.getUpdatedUsername() != null) {
+        updateRequest.setUpdatedUsername(
+            UsernameNormalizer.normalize(updateRequest.getUpdatedUsername()));
+      }
       log.info("Updating user: {}", updateRequest.getUsername());
       User updatedUser = userRepository.findAndModifyUser(updateRequest);
 
@@ -98,10 +108,11 @@ public class UserService {
   public boolean verifyPassword(String username, String rawPassword) {
     Timer.Sample sample = fitzNetMetrics.startSample();
     try {
-      log.info("Verifying password for user: {}", username);
-      User user = userRepository.findByUsername(username);
+      String normalized = UsernameNormalizer.normalize(username);
+      log.info("Verifying password for user: {}", normalized);
+      User user = userRepository.findByUsername(normalized);
       if (user == null) {
-        log.warn("User not found: {}", username);
+        log.warn("User not found: {}", normalized);
         fitzNetMetrics.recordUserOperation("login", "user_not_found", sample);
         return false;
       }
@@ -117,15 +128,18 @@ public class UserService {
   }
 
   public User setPermissions(String username, Collection<String> permissions) {
-    return updatePermissions("set_permissions", () -> userRepository.setPermissions(username, permissions));
+    String normalized = UsernameNormalizer.normalize(username);
+    return updatePermissions("set_permissions", () -> userRepository.setPermissions(normalized, permissions));
   }
 
   public User addPermission(String username, String permission) {
-    return updatePermissions("add_permission", () -> userRepository.addPermission(username, permission));
+    String normalized = UsernameNormalizer.normalize(username);
+    return updatePermissions("add_permission", () -> userRepository.addPermission(normalized, permission));
   }
 
   public User removePermission(String username, String permission) {
-    return updatePermissions("remove_permission", () -> userRepository.removePermission(username, permission));
+    String normalized = UsernameNormalizer.normalize(username);
+    return updatePermissions("remove_permission", () -> userRepository.removePermission(normalized, permission));
   }
 
   private User updatePermissions(String operation, Supplier<User> action) {

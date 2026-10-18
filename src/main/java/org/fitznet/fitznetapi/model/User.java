@@ -24,6 +24,11 @@ public class User {
 
   @Id String id;
 
+  /**
+   * Always stored lowercase (see {@code UsernameNormalizer}). Uniqueness is enforced by the
+   * {@code username_unique} index created by {@code UsernameIndexInitializer}. Deliberately not
+   * annotated with {@code @Indexed} because auto-index creation is disabled.
+   */
   String username;
   @JsonIgnore String password;
   String email;

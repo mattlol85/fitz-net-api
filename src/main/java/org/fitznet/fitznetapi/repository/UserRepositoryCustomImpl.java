@@ -32,6 +32,7 @@ public class UserRepositoryCustomImpl implements UserRepositoryCustom {
   public User findAndModifyUser(UpdateUserRequestDto updateRequest) {
     log.debug("Executing findAndModify for user: {}", updateRequest.getUsername());
 
+    // Callers pass normalized (trimmed, lowercased) usernames; no normalization happens here.
     // Build the query to find the user by username
     Query query = new Query(Criteria.where("username").is(updateRequest.getUsername()));
 

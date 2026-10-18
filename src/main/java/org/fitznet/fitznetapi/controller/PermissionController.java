@@ -13,6 +13,7 @@ import org.fitznet.fitznetapi.model.Permissions;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.service.PermissionService;
 import org.fitznet.fitznetapi.service.UserService;
+import org.fitznet.fitznetapi.util.UsernameNormalizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -114,7 +115,7 @@ public class PermissionController {
     var auth = SecurityContextHolder.getContext().getAuthentication();
     if (!keepsAdmin
         && !(auth instanceof AdminApiKeyFilter.ApiKeyAuthentication)
-        && auth.getName().equals(targetUsername)) {
+        && auth.getName().equals(UsernameNormalizer.normalize(targetUsername))) {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "You cannot remove your own ADMIN permission");
     }

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import java.util.Locale;
 import lombok.ToString;
 import lombok.Value;
+import org.fitznet.fitznetapi.util.UsernameNormalizer;
 
 @Value
 @ToString(exclude = "password")
@@ -20,7 +21,7 @@ public class UserDTO {
       @JsonProperty("username") String username,
       @JsonProperty("email") String email,
       @JsonProperty("password") String password) {
-    this.username = normalize(username);
+    this.username = UsernameNormalizer.normalize(username);
     this.email = normalize(email);
     this.password = password;
   }

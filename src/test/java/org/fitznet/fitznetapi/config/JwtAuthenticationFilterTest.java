@@ -106,6 +106,25 @@ class JwtAuthenticationFilterTest {
   }
 
   @Test
+  void shouldUseStoredUsernameAsPrincipal() throws ServletException, IOException {
+    String token = "legacy.jwt.token";
+    request.addHeader("Authorization", "Bearer " + token);
+
+    // Token minted before normalization carries a mixed-case subject
+    when(jwtUtil.extractUsername(token)).thenReturn("MattLol85");
+    when(jwtUtil.validateToken(token)).thenReturn(true);
+    when(userService.readByUsername("MattLol85"))
+        .thenReturn(
+            org.fitznet.fitznetapi.model.User.builder().username("mattlol85").build());
+
+    jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
+
+    assertEquals("mattlol85", SecurityContextHolder.getContext().getAuthentication().getPrincipal());
+    assertEquals("mattlol85", SecurityContextHolder.getContext().getAuthentication().getName());
+    verify(filterChain, times(1)).doFilter(request, response);
+  }
+
+  @Test
   void doFilterInternalShouldNotAuthenticateInvalidToken() throws ServletException, IOException {
     String token = "invalid.jwt.token";
 

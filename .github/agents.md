@@ -82,6 +82,10 @@ Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management 
 | PATCH | `/user/update` | JWT | `UpdateUserRequestDto { username, updatedUsername, email, updatedEmail, updatedPassword }` | `void` |
 | DELETE | `/user/delete` | JWT | `DeleteUserRequestDto { username }` | `void` |
 
+**Usernames are case-insensitive and stored lowercase.** Input is trimmed and lowercased before lookup, so `ZMat` and `zmat` are the same account. Login, reads, updates and deletes accept any casing; responses return the stored lowercase name.
+
+**HTTP 409 means the username is already taken** (for example, on `POST /user/create` or a rename that matches another user's name ignoring case).
+
 ---
 
 ## Commit Convention

@@ -19,6 +19,7 @@ import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.UserService;
 import org.fitznet.fitznetapi.util.JwtUtil;
+import org.fitznet.fitznetapi.util.UsernameNormalizer;
 import org.slf4j.Logger;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.slf4j.LoggerFactory;
@@ -103,6 +104,7 @@ public class UserController {
     // The target account is always the authenticated principal; any body-supplied
     // username is ignored to prevent cross-account modification.
     updateUserDto.setUsername(currentUsername);
+    updateUserDto.setUpdatedUsername(validateRename(currentUsername, updateUserDto.getUpdatedUsername()));
     User updatedUser = userService.updateUser(updateUserDto);
 
     if (updatedUser == null) {
@@ -124,8 +126,9 @@ public class UserController {
 
     boolean hasUpdates = false;
 
-    if (profileRequest.getUsername() != null && !profileRequest.getUsername().equals(currentUsername)) {
-      updateDto.setUpdatedUsername(profileRequest.getUsername());
+    String renamedTo = validateRename(currentUsername, profileRequest.getUsername());
+    if (renamedTo != null) {
+      updateDto.setUpdatedUsername(renamedTo);
       hasUpdates = true;
     }
 
@@ -168,15 +171,39 @@ public class UserController {
   }
 
   private boolean doesUserAlreadyExist(String username) {
-    var possibleUser = userRepository.findByUsername(username);
-    log.info("Checking to see if user {} exists in db", username);
+    String normalized = UsernameNormalizer.normalize(username);
+    var possibleUser = userRepository.findByUsername(normalized);
+    log.info("Checking to see if user {} exists in db", normalized);
     return null != possibleUser;
   }
 
   private boolean doesUserAlreadyExist(UserDTO user) {
-    var possibleUser = userRepository.findByUsername(user.getUsername());
-    log.info("Checking to see if user {} exists in db", user.getUsername());
+    String normalized = UsernameNormalizer.normalize(user.getUsername());
+    var possibleUser = userRepository.findByUsername(normalized);
+    log.info("Checking to see if user {} exists in db", normalized);
     return null != possibleUser;
+  }
+
+  /**
+   * Validates a requested rename of the authenticated user. Returns the normalized new username
+   * when it is a real rename, or null when nothing should change (no value requested, or the
+   * request only restates the current name in a different case).
+   */
+  private String validateRename(String current, String requested) {
+    if (requested == null) {
+      return null;
+    }
+    String normalized = UsernameNormalizer.normalize(requested);
+    if (normalized.equals(UsernameNormalizer.normalize(current))) {
+      return null;
+    }
+    if (AdminApiKeyFilter.PRINCIPAL.equals(normalized)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username is reserved");
+    }
+    if (null != userRepository.findByUsername(normalized)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already taken");
+    }
+    return normalized;
   }
 
   private boolean isEmailAlreadyInUse(UserDTO user) {
@@ -200,7 +227,7 @@ public class UserController {
     }
 
     if (doesUserAlreadyExist(user)) {
-      throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already taken");
     }
 
     if (isEmailAlreadyInUse(user)) {

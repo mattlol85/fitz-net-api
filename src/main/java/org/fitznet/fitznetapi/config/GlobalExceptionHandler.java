@@ -3,6 +3,7 @@ package org.fitznet.fitznetapi.config;
 import java.util.HashMap;
 import java.util.Map;
 import org.fitznet.fitznetapi.metrics.FitzNetMetrics;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -62,6 +63,11 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
     return errorResponse("access_denied", HttpStatus.FORBIDDEN, "Forbidden");
+  }
+
+  @ExceptionHandler(DuplicateKeyException.class)
+  public ResponseEntity<Map<String, Object>> handleDuplicateKey(DuplicateKeyException ex) {
+    return errorResponse("conflict", HttpStatus.CONFLICT, "Username already taken");
   }
 
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)
