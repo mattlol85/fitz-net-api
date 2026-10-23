@@ -20,7 +20,7 @@ permissions:
 jobs:
   build:
     name: 🧪 Build & Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v6
@@ -68,7 +68,7 @@ jobs:
 
   version:
     name: 🏷️ Version & Tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     outputs:
       new-version: ${{ steps.version_calc.outputs.new-version }}
@@ -173,7 +173,7 @@ jobs:
 
   release:
     name: 📦 Create GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: version
     if: needs.version.result == 'success'
     steps:
@@ -231,7 +231,7 @@ jobs:
 
   docker:
     name: 🐳 Build & Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [version, release]
     if: needs.version.result == 'success' && needs.release.result == 'success'
     steps:
