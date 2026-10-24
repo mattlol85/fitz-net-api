@@ -1,7 +1,5 @@
 package org.fitznet.fitznetapi.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -20,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Streams a chat from a node's Ollama {@code /api/chat} to the caller as Server-Sent Events.
@@ -190,7 +190,7 @@ public class OllamaChatStreamer {
     void event(String name, Object data) {
       try {
         write("event: " + name + "\ndata: " + objectMapper.writeValueAsString(data) + "\n\n");
-      } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+      } catch (tools.jackson.core.JacksonException ex) {
         throw new IllegalStateException(ex);
       }
     }

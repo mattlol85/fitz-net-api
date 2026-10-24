@@ -1,7 +1,5 @@
 package org.fitznet.fitznetapi.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
@@ -13,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Works out the context window ({@code num_ctx}) to run a model with: the model's own
@@ -77,7 +77,7 @@ public class OllamaModelInfo {
         return null;
       }
       JsonNode modelInfo = objectMapper.readTree(connection.getInputStream()).path("model_info");
-      Iterator<Map.Entry<String, JsonNode>> fields = modelInfo.fields();
+      Iterator<Map.Entry<String, JsonNode>> fields = modelInfo.properties().iterator();
       while (fields.hasNext()) {
         Map.Entry<String, JsonNode> field = fields.next();
         if (field.getKey().endsWith(".context_length") && field.getValue().canConvertToInt()) {
