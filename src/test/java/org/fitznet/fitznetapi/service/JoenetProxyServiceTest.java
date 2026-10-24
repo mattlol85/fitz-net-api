@@ -210,10 +210,10 @@ class JoenetProxyServiceTest {
 
     assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
     assertEquals("5.0", response.getHeaders().getFirst("X-Application-Version"));
-    assertFalse(response.getHeaders().containsKey("Connection"));
-    assertFalse(response.getHeaders().containsKey("Keep-Alive"));
-    assertFalse(response.getHeaders().containsKey("Transfer-Encoding"));
-    assertFalse(response.getHeaders().containsKey("Set-Cookie"));
+    assertFalse(response.getHeaders().containsHeader("Connection"));
+    assertFalse(response.getHeaders().containsHeader("Keep-Alive"));
+    assertFalse(response.getHeaders().containsHeader("Transfer-Encoding"));
+    assertFalse(response.getHeaders().containsHeader("Set-Cookie"));
   }
 
   @Test

@@ -2,9 +2,6 @@ package org.fitznet.fitznetapi.dto;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Instant;
 import org.fitznet.fitznetapi.dto.liveboard.BoardMessageDto;
 import org.fitznet.fitznetapi.dto.liveboard.CursorMoveDto;
@@ -12,6 +9,9 @@ import org.fitznet.fitznetapi.dto.responses.LoginResponseDto;
 import org.fitznet.fitznetapi.dto.responses.UpdateProfileResponseDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Verifies that @JsonProperty annotations preserve camelCase field names
@@ -29,9 +29,9 @@ class JsonPropertyNamingTest {
   @BeforeEach
   void setUp() {
     // Reproduce the LOWER_CASE naming strategy imposed by spring-boot-starter-data-rest
-    mapper = new ObjectMapper()
-        .setPropertyNamingStrategy(PropertyNamingStrategies.LOWER_CASE)
-        .registerModule(new JavaTimeModule());
+    mapper = JsonMapper.builder()
+        .propertyNamingStrategy(PropertyNamingStrategies.LOWER_CASE)
+        .build();
   }
 
   // ── CursorMoveDto ───────────────────────────────────────────────────────────

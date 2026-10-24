@@ -1,6 +1,6 @@
 # fitz-net-api — Agentic Development Guide
 
-Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management and authentication services.
+Spring Boot 4.1 REST API — the backend for Fitz-Net. Provides user management and authentication services.
 
 ---
 
@@ -9,7 +9,7 @@ Spring Boot 3.4 REST API — the backend for Fitz-Net. Provides user management 
 | Item | Value |
 |---|---|
 | Language | Java 21 |
-| Framework | Spring Boot 3.4 |
+| Framework | Spring Boot 4.1 |
 | Build tool | Gradle (Kotlin DSL) |
 | Database | MongoDB (Spring Data MongoDB) |
 | Auth | JWT Bearer tokens (JJWT) |
