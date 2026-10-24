@@ -69,7 +69,10 @@ public class OllamaChatStreamer {
   }
 
   public void stream(ChatTarget target, List<ChatMessageDto> messages, OutputStream out) {
-    SseWriter sse = new SseWriter(out);
+    stream(target, messages, new SseWriter(out));
+  }
+
+  public void stream(ChatTarget target, List<ChatMessageDto> messages, ChatEventSink sse) {
     long deadline = System.nanoTime() + maxStreamDuration.toNanos();
     HttpURLConnection connection = null;
     try {
@@ -114,7 +117,7 @@ public class OllamaChatStreamer {
           }
           String content = chunk.path("message").path("content").asText("");
           if (content.isEmpty()) {
-            sse.comment();
+            sse.keepAlive();
           } else {
             sse.event("token", Map.of("content", content));
           }
@@ -171,7 +174,7 @@ public class OllamaChatStreamer {
     return connection;
   }
 
-  private void sendErrorQuietly(SseWriter sse, String message) {
+  private void sendErrorQuietly(ChatEventSink sse, String message) {
     try {
       sse.event("error", Map.of("message", message));
     } catch (UncheckedIOException clientGone) {
@@ -180,14 +183,15 @@ public class OllamaChatStreamer {
   }
 
   /** Writes SSE frames, surfacing downstream write failures as {@link UncheckedIOException}. */
-  private final class SseWriter {
+  private final class SseWriter implements ChatEventSink {
     private final OutputStream out;
 
     SseWriter(OutputStream out) {
       this.out = out;
     }
 
-    void event(String name, Object data) {
+    @Override
+    public void event(String name, Map<String, ?> data) {
       try {
         write("event: " + name + "\ndata: " + objectMapper.writeValueAsString(data) + "\n\n");
       } catch (tools.jackson.core.JacksonException ex) {
@@ -195,7 +199,9 @@ public class OllamaChatStreamer {
       }
     }
 
-    void comment() {
+    /** An SSE comment, so proxies still see traffic. */
+    @Override
+    public void keepAlive() {
       write(":\n\n");
     }
 

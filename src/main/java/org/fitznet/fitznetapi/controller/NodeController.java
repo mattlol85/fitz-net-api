@@ -14,6 +14,7 @@ import org.fitznet.fitznetapi.dto.responses.ChatResponseDto;
 import org.fitznet.fitznetapi.dto.responses.NodeRegisterResponseDto;
 import org.fitznet.fitznetapi.model.NodeStatus;
 import org.fitznet.fitznetapi.service.AiNodeService;
+import org.fitznet.fitznetapi.service.ChatEventSink;
 import org.fitznet.fitznetapi.service.ChatTarget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,6 +89,15 @@ public class NodeController {
     // Tell nginx not to buffer, so tokens reach the browser as they arrive.
     response.setHeader("X-Accel-Buffering", "no");
     aiNodeService.streamChat(target, messages, response.getOutputStream());
+  }
+
+  /** gRPC {@code NodeService/ChatStream}: same checks as {@link #chatStream}, events to a sink. */
+  @PreAuthorize("hasAnyAuthority('PERM_AI_USER','PERM_ADMIN')")
+  public void chatStream(String id, ChatRequestDto request, ChatEventSink sink) {
+    log.info("gRPC request at NodeService/ChatStream - node {}", id);
+    List<ChatMessageDto> messages = AiNodeService.toMessages(request);
+    ChatTarget target = aiNodeService.resolveChatTarget(id, request.getModel());
+    aiNodeService.streamChat(target, messages, sink);
   }
 
   @DeleteMapping("/node/{id}")

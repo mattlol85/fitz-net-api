@@ -11,6 +11,7 @@ import java.util.List;
 import org.fitznet.fitznetapi.model.Permissions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -48,14 +49,22 @@ public class AdminApiKeyFilter extends OncePerRequestFilter {
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
-    String provided = request.getHeader(HEADER);
-    if (configuredKey != null
-        && provided != null
-        && SecurityContextHolder.getContext().getAuthentication() == null
-        && MessageDigest.isEqual(configuredKey, provided.getBytes(StandardCharsets.UTF_8))) {
-      SecurityContextHolder.getContext()
-          .setAuthentication(new ApiKeyAuthentication());
+    if (SecurityContextHolder.getContext().getAuthentication() == null) {
+      Authentication auth = authenticate(request.getHeader(HEADER));
+      if (auth != null) {
+        SecurityContextHolder.getContext().setAuthentication(auth);
+      }
     }
     filterChain.doFilter(request, response);
+  }
+
+  /** The API-key authentication for {@code provided}, or null if it isn't the configured key. */
+  public Authentication authenticate(String provided) {
+    if (configuredKey != null
+        && provided != null
+        && MessageDigest.isEqual(configuredKey, provided.getBytes(StandardCharsets.UTF_8))) {
+      return new ApiKeyAuthentication();
+    }
+    return null;
   }
 }

@@ -2,6 +2,7 @@ plugins {
     java
     id("org.springframework.boot") version "4.1.2"
     id("io.spring.dependency-management") version "1.1.7"
+    id("com.google.protobuf") version "0.10.0"
 }
 
 group = "org.fitznet"
@@ -37,6 +38,11 @@ dependencies {
     implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("com.google.code.gson:gson:2.14.0")
 
+    // gRPC equivalents of the REST endpoints (src/main/proto), served on spring.grpc.server.port
+    implementation("org.springframework.boot:spring-boot-starter-grpc-server")
+    implementation("io.grpc:grpc-protobuf")
+    implementation("io.grpc:grpc-stub")
+
     // JWT dependencies
     implementation("io.jsonwebtoken:jjwt-api:0.13.0")
     runtimeOnly("io.jsonwebtoken:jjwt-impl:0.13.0")
@@ -46,6 +52,7 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-grpc-server-test")
     testImplementation("org.mockito:mockito-core")
     testImplementation("de.flapdoodle.embed:de.flapdoodle.embed.mongo.spring4x:4.22.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -53,6 +60,24 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
     compileOnly("org.projectlombok:lombok")
 
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${dependencyManagement.importedProperties["protobuf-java.version"]}"
+    }
+    plugins {
+        create("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:${dependencyManagement.importedProperties["grpc-java.version"]}"
+        }
+    }
+    generateProtoTasks {
+        all().forEach {
+            it.plugins {
+                maybeCreate("grpc").option("@generated=omit")
+            }
+        }
+    }
 }
 
 tasks.withType<Test> {

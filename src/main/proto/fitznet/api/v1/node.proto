@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+// gRPC equivalents of NodeController and NodeEnrollmentController (/node/*). RegisterNode, Heartbeat,
+// ListNodes and DeleteNode are public (nodes authenticate with their own key); the rest need a user JWT.
+package fitznet.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "org.fitznet.fitznetapi.grpc.proto";
+
+service NodeService {
+  // POST /node/register
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  // POST /node/heartbeat (X-Node-Id / X-Node-Key headers become node_id / node_key)
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  // GET /node/list
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  // POST /node/{id}/chat (AI_USER or ADMIN)
+  rpc Chat(ChatRequest) returns (ChatResponse);
+  // POST /node/{id}/chat/stream (AI_USER or ADMIN). Server-streamed version of the SSE events:
+  // one meta, then tokens, then exactly one of done | error.
+  rpc ChatStream(ChatRequest) returns (stream ChatEvent);
+  // DELETE /node/{id}
+  rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
+  // POST /node/enrollment-token
+  rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (EnrollmentToken);
+}
+
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  NODE_STATUS_ONLINE = 1;
+  NODE_STATUS_BUSY = 2;
+  NODE_STATUS_OFFLINE = 3;
+}
+
+message Node {
+  string id = 1;
+  string name = 2;
+  NodeStatus status = 3;
+  optional string os = 4;
+  repeated string models = 5;
+  optional double vram_gb = 6;
+  google.protobuf.Timestamp registered_at = 7;
+  google.protobuf.Timestamp last_heartbeat_at = 8;
+}
+
+message RegisterNodeRequest {
+  string token = 1;
+  string name = 2;
+  optional string os = 3;
+  repeated string models = 4;
+  optional double vram_gb = 5;
+  optional string address = 6;
+}
+
+message RegisterNodeResponse {
+  string node_id = 1;
+  string node_key = 2;
+}
+
+// Wrapped so "no models" (empty list) is distinguishable from "leave models unchanged" (unset).
+message ModelList {
+  repeated string values = 1;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string node_key = 2;
+  // ONLINE, BUSY or OFFLINE (case-insensitive); defaults to ONLINE.
+  optional string status = 3;
+  ModelList models = 4;
+  optional string address = 5;
+}
+
+message HeartbeatResponse {}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  repeated Node nodes = 1;
+}
+
+message ChatMessage {
+  // "user" or "assistant"
+  string role = 1;
+  string content = 2;
+}
+
+// Either messages (full history ending with the user turn) or a single-turn prompt; messages wins.
+message ChatRequest {
+  string node_id = 1;
+  optional string prompt = 2;
+  optional string model = 3;
+  repeated ChatMessage messages = 4;
+}
+
+message ChatResponse {
+  string reply = 1;
+  string model = 2;
+  string node_id = 3;
+}
+
+message ChatEvent {
+  oneof event {
+    ChatMeta meta = 1;
+    ChatToken token = 2;
+    ChatDone done = 3;
+    ChatError error = 4;
+  }
+}
+
+message ChatMeta {
+  string model = 1;
+  string node_id = 2;
+  int32 context_length = 3;
+}
+
+message ChatToken {
+  string content = 1;
+}
+
+message ChatDone {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 context_length = 3;
+}
+
+message ChatError {
+  string message = 1;
+}
+
+message DeleteNodeRequest {
+  string node_id = 1;
+  string node_key = 2;
+}
+
+message DeleteNodeResponse {}
+
+message CreateEnrollmentTokenRequest {
+  optional string label = 1;
+}
+
+message EnrollmentToken {
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
