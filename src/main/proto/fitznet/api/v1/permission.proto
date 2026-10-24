@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+// gRPC equivalents of PermissionController (/admin/*). Every RPC requires ADMIN (user JWT or x-admin-key).
+package fitznet.api.v1;
+
+import "fitznet/api/v1/user.proto";
+
+option java_multiple_files = true;
+option java_package = "org.fitznet.fitznetapi.grpc.proto";
+
+service PermissionService {
+  // GET /admin/permissions
+  rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
+  // POST /admin/permissions
+  rpc CreatePermission(CreatePermissionRequest) returns (Permission);
+  // DELETE /admin/permissions/{permission}
+  rpc DeletePermission(DeletePermissionRequest) returns (DeletePermissionResponse);
+  // GET /admin/users
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  // GET /admin/users/{username}/permissions
+  rpc GetUserPermissions(GetUserPermissionsRequest) returns (UserPermissions);
+  // PUT /admin/users/{username}/permissions
+  rpc SetUserPermissions(SetUserPermissionsRequest) returns (UserPermissions);
+  // POST /admin/users/{username}/permissions/{permission}
+  rpc GrantUserPermission(UserPermissionRequest) returns (UserPermissions);
+  // DELETE /admin/users/{username}/permissions/{permission}
+  rpc RevokeUserPermission(UserPermissionRequest) returns (UserPermissions);
+}
+
+message Permission {
+  string name = 1;
+  optional string description = 2;
+}
+
+message ListPermissionsRequest {}
+
+message ListPermissionsResponse {
+  repeated Permission permissions = 1;
+}
+
+message CreatePermissionRequest {
+  string name = 1;
+  optional string description = 2;
+}
+
+message DeletePermissionRequest {
+  string permission = 1;
+}
+
+message DeletePermissionResponse {}
+
+message GetUserPermissionsRequest {
+  string username = 1;
+}
+
+message UserPermissions {
+  string username = 1;
+  repeated string permissions = 2;
+}
+
+// Wrapped so "replace with nothing" (an empty list) is distinguishable from a missing field, which is
+// rejected like the REST body's @NotNull permissions.
+message PermissionList {
+  repeated string values = 1;
+}
+
+message SetUserPermissionsRequest {
+  string username = 1;
+  PermissionList permissions = 2;
+}
+
+message UserPermissionRequest {
+  string username = 1;
+  string permission = 2;
+}

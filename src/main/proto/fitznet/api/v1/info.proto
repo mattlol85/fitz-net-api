@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+// gRPC equivalent of ApiInfoController (GET /info). Public.
+package fitznet.api.v1;
+
+option java_multiple_files = true;
+option java_package = "org.fitznet.fitznetapi.grpc.proto";
+
+service InfoService {
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+}
+
+message GetInfoRequest {}
+
+message GetInfoResponse {
+  string status = 1;
+  int32 collection_count = 2;
+  string version = 3;
+}

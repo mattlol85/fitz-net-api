@@ -38,8 +38,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
 
-    final String authorizationHeader = request.getHeader("Authorization");
+    if (SecurityContextHolder.getContext().getAuthentication() == null) {
+      UsernamePasswordAuthenticationToken authenticationToken =
+          authenticate(request.getHeader("Authorization"));
+      if (authenticationToken != null) {
+        authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+      }
+    }
 
+    filterChain.doFilter(request, response);
+  }
+
+  /**
+   * Authenticates a {@code Bearer <jwt>} Authorization value, or returns null when it is absent or
+   * invalid. Shared with the gRPC server (GrpcAuthInterceptor).
+   */
+  public UsernamePasswordAuthenticationToken authenticate(String authorizationHeader) {
     String username = null;
     String jwt = null;
 
@@ -52,34 +67,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         log.warn("Error extracting username from JWT: {}", e.getMessage());
       }
     }
-
-    // Validate token and set authentication
-    if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-      // Permissions come from the database, not the token, so revocation is immediate.
-      User user = null;
-      try {
-        user = jwtUtil.validateToken(jwt) ? userService.readByUsername(username) : null;
-      } catch (RuntimeException e) {
-        // e.g. Mongo unavailable: leave the request unauthenticated so public endpoints still work
-        log.warn("Could not load user {} during JWT authentication: {}", username, e.getMessage());
-      }
-      if (user != null) {
-        Set<String> granted = user.getPermissions() == null ? Set.of() : user.getPermissions();
-        List<GrantedAuthority> authorities =
-            granted.stream()
-                .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(Permissions.authority(p)))
-                .toList();
-        // Principal is the stored (canonical) username, not the raw token subject, so tokens
-        // issued before usernames were normalized still resolve to a canonical name downstream.
-        UsernamePasswordAuthenticationToken authenticationToken =
-            new UsernamePasswordAuthenticationToken(user.getUsername(), null, authorities);
-        authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-        SecurityContextHolder.getContext().setAuthentication(authenticationToken);
-        log.debug("JWT authentication successful for user: {}", username);
-      }
+    if (username == null) {
+      return null;
     }
 
-    filterChain.doFilter(request, response);
+    // Permissions come from the database, not the token, so revocation is immediate.
+    User user = null;
+    try {
+      user = jwtUtil.validateToken(jwt) ? userService.readByUsername(username) : null;
+    } catch (RuntimeException e) {
+      // e.g. Mongo unavailable: leave the request unauthenticated so public endpoints still work
+      log.warn("Could not load user {} during JWT authentication: {}", username, e.getMessage());
+    }
+    if (user == null) {
+      return null;
+    }
+    Set<String> granted = user.getPermissions() == null ? Set.of() : user.getPermissions();
+    List<GrantedAuthority> authorities =
+        granted.stream()
+            .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(Permissions.authority(p)))
+            .toList();
+    log.debug("JWT authentication successful for user: {}", username);
+    // Principal is the stored (canonical) username, not the raw token subject, so tokens
+    // issued before usernames were normalized still resolve to a canonical name downstream.
+    return new UsernamePasswordAuthenticationToken(user.getUsername(), null, authorities);
   }
 }
 

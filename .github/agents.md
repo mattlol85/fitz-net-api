@@ -107,3 +107,21 @@ Use `feat` for new user-facing behavior, `fix` for bug fixes, `chore` for mainte
 - **Void responses:** Always return a response DTO — never `void` — so `response.json()` works on the frontend
 - **CORS:** New origins need updating in both `SecurityConfig.corsConfigurationSource()` AND `application.properties`
 - **Security:** New public endpoints must be added to the `permitAll()` list in `SecurityConfig`
+
+---
+
+## gRPC (always alongside REST)
+
+Every REST endpoint has an equivalent RPC in `src/main/proto/fitznet/api/v1/*.proto`, implemented by a
+`@GrpcService` in `org.fitznet.fitznetapi.grpc` that delegates to the controller bean (so `@PreAuthorize`,
+validation and error messages are shared). When you add or change a REST endpoint, in the same PR:
+
+1. Add/adjust the RPC and messages in the matching `.proto` (never reuse field numbers).
+2. Add the method to the `*GrpcService` (map proto → DTO → controller → proto in `ProtoMapper`). Run
+   `GrpcRequestValidator.valid(dto)` on bodies that are `@Valid` in REST.
+3. If the REST route is `permitAll()`, add the RPC to `GrpcAuthInterceptor.PUBLIC_METHODS`.
+4. Add a case to `GrpcIntegrationTest` (success, auth failure, validation error).
+5. Update `docs/grpc.md` in the Fitz-Net hub repo.
+
+New `ResponseStatusException` types map automatically via `GrpcExceptionMapper`; a new exception class
+needs a branch there, mirroring `GlobalExceptionHandler`.

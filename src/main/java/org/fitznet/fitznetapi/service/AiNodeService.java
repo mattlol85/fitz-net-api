@@ -167,6 +167,10 @@ public class AiNodeService {
     ollamaChatStreamer.stream(target, messages, out);
   }
 
+  public void streamChat(ChatTarget target, List<ChatMessageDto> messages, ChatEventSink sink) {
+    ollamaChatStreamer.stream(target, messages, sink);
+  }
+
   public ChatResponseDto chat(String nodeId, List<ChatMessageDto> messages, String requestedModel) {
     ChatTarget target = resolveChatTarget(nodeId, requestedModel);
     String model = target.model();
