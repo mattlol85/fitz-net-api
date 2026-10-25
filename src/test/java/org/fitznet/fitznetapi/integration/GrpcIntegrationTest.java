@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.Set;
 import org.fitznet.fitznetapi.config.EmbeddedMongoTestConfiguration;
 import org.fitznet.fitznetapi.grpc.proto.ChatEvent;
@@ -144,6 +145,33 @@ class GrpcIntegrationTest {
             .permissions(new HashSet<>(Set.of(permissions)))
             .build());
     return jwtUtil.generateToken(username);
+  }
+
+  @Test
+  void correlationIdIsEchoedInResponseHeaders() {
+    Metadata sent = new Metadata();
+    sent.put(Metadata.Key.of("x-correlation-id", Metadata.ASCII_STRING_MARSHALLER), "trace-abc-123");
+    AtomicReference<Metadata> received = new AtomicReference<>();
+    InfoServiceGrpc.newBlockingStub(channel)
+        .withInterceptors(
+            MetadataUtils.newAttachHeadersInterceptor(sent),
+            MetadataUtils.newCaptureMetadataInterceptor(received, new AtomicReference<>()))
+        .getInfo(GetInfoRequest.getDefaultInstance());
+    assertEquals(
+        "trace-abc-123",
+        received.get().get(Metadata.Key.of("x-correlation-id", Metadata.ASCII_STRING_MARSHALLER)));
+  }
+
+  @Test
+  void correlationIdIsGeneratedWhenMissing() {
+    AtomicReference<Metadata> received = new AtomicReference<>();
+    InfoServiceGrpc.newBlockingStub(channel)
+        .withInterceptors(
+            MetadataUtils.newCaptureMetadataInterceptor(received, new AtomicReference<>()))
+        .getInfo(GetInfoRequest.getDefaultInstance());
+    assertTrue(
+        received.get().get(Metadata.Key.of("x-correlation-id", Metadata.ASCII_STRING_MARSHALLER))
+            != null);
   }
 
   @Test
