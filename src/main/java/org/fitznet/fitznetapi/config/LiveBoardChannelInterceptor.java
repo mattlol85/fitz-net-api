@@ -1,5 +1,6 @@
 package org.fitznet.fitznetapi.config;
 
+import org.fitznet.fitznetapi.tracing.TraceContext;
 import org.fitznet.fitznetapi.util.JwtUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +16,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class LiveBoardChannelInterceptor implements ChannelInterceptor {
@@ -28,7 +30,12 @@ public class LiveBoardChannelInterceptor implements ChannelInterceptor {
     StompHeaderAccessor accessor =
         MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
-    if (accessor == null || !StompCommand.CONNECT.equals(accessor.getCommand())) {
+    if (accessor == null) {
+      return message;
+    }
+    traceMessage(accessor);
+
+    if (!StompCommand.CONNECT.equals(accessor.getCommand())) {
       return message;
     }
 
@@ -59,5 +66,32 @@ public class LiveBoardChannelInterceptor implements ChannelInterceptor {
 
     return message;
   }
-}
 
+  @Override
+  public void afterSendCompletion(
+      Message<?> message, MessageChannel channel, boolean sent, Exception ex) {
+    TraceContext.clear();
+  }
+
+  /**
+   * Puts the connection's correlation id in the MDC. The id is taken from the CONNECT frame's
+   * {@code X-Correlation-ID} native header and remembered in the WebSocket session so later
+   * frames on the same connection log under it.
+   */
+  private void traceMessage(StompHeaderAccessor accessor) {
+    Map<String, Object> session = accessor.getSessionAttributes();
+    String correlationId = null;
+    if (StompCommand.CONNECT.equals(accessor.getCommand())) {
+      correlationId =
+          TraceContext.idOrNew(accessor.getFirstNativeHeader(TraceContext.CORRELATION_ID_HEADER));
+      if (session != null) {
+        session.put(TraceContext.MDC_CORRELATION_ID, correlationId);
+      }
+    } else if (session != null) {
+      correlationId = (String) session.get(TraceContext.MDC_CORRELATION_ID);
+    }
+    if (correlationId != null) {
+      TraceContext.put(correlationId, correlationId, "stomp");
+    }
+  }
+}
