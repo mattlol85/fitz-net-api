@@ -36,7 +36,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("com.github.ben-manes.caffeine:caffeine")
-    implementation("com.google.code.gson:gson:2.14.0")
+    implementation("com.google.code.gson:gson:2.15.0")
 
     // gRPC equivalents of the REST endpoints (src/main/proto), served on spring.grpc.server.port
     implementation("org.springframework.boot:spring-boot-starter-grpc-server")
@@ -54,7 +54,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-grpc-server-test")
     testImplementation("org.mockito:mockito-core")
-    testImplementation("de.flapdoodle.embed:de.flapdoodle.embed.mongo.spring4x:4.22.0")
+    testImplementation("de.flapdoodle.embed:de.flapdoodle.embed.mongo.spring4x:4.33.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     annotationProcessor("org.projectlombok:lombok")
