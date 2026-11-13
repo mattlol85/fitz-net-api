@@ -82,6 +82,21 @@ Spring Boot 4.1 REST API — the backend for Fitz-Net. Provides user management 
 | PATCH | `/user/update` | JWT | `UpdateUserRequestDto { username, updatedUsername, email, updatedEmail, updatedPassword }` | `void` |
 | DELETE | `/user/delete` | JWT | `DeleteUserRequestDto { username }` | `void` |
 
+### Matt-GPT v2 node/model layer (`/ai/**`, contract: `docs/ai-chat-contract.md` in the Fitz-Net hub)
+
+All need `AI_USER` or `ADMIN` (`AiCatalogController`, gRPC `AiChatService`). New classes live in `service/ai/`.
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/ai/models[?refresh=true]` | node + model catalogue (Ollama `/api/tags`, `/api/ps`, `/api/show`, cached; never exposes a node address) |
+| POST | `/ai/warmup` | `{ state: loaded\|loading\|unavailable, nodeId, nodeName, model, message }` |
+| GET / PUT | `/ai/preferences` | `{ lastTarget, lastPresetId, updatedAt }` (PUT: absent field = keep, `null` = clear) |
+
+- Effective node status (`NodeStatusResolver`) is the only status to expose or route on: OFFLINE when the heartbeat is older than `ai.node.stale-after`, BUSY when the API has a generation in flight (`NodeActivityTracker`).
+- `ModelRouter.route(model, nodeId|null, excluded)` resolves a target (Auto order in `AutoOrder`); `OllamaTurnStreamer` runs one generation and returns a `TurnResult` (it never writes `meta`/`done`/`error`).
+- The turn engine talks to Ollama through `UpstreamHttp`, not `HttpURLConnection`: `HttpURLConnection.disconnect()` cannot wake a thread blocked reading a silent body, so cancel would be late.
+- Background work must go through `MdcPropagation` so the `correlationId` follows it.
+
 **Usernames are case-insensitive and stored lowercase.** Input is trimmed and lowercased before lookup, so `ZMat` and `zmat` are the same account. Login, reads, updates and deletes accept any casing; responses return the stored lowercase name.
 
 **HTTP 409 means the username is already taken** (for example, on `POST /user/create` or a rename that matches another user's name ignoring case).
