@@ -1,0 +1,160 @@
+package org.fitznet.fitznetapi.integration;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.fitznet.fitznetapi.model.AiConversation;
+import org.fitznet.fitznetapi.model.AiMessage;
+import org.fitznet.fitznetapi.model.AiNode;
+import org.fitznet.fitznetapi.model.ModelTarget;
+import org.fitznet.fitznetapi.model.NodeStatus;
+import org.fitznet.fitznetapi.model.User;
+import org.fitznet.fitznetapi.repository.AiConversationRepository;
+import org.fitznet.fitznetapi.repository.AiMessageRepository;
+import org.fitznet.fitznetapi.repository.AiNodeRepository;
+import org.fitznet.fitznetapi.repository.UserRepository;
+import org.fitznet.fitznetapi.service.ai.FakeOllama;
+import org.fitznet.fitznetapi.util.JwtUtil;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+/**
+ * Shared fixtures of the Matt-GPT conversation tests: two fake nodes ("Alpha" and "Bravo", each
+ * with a few models), users, seeded conversations and an SSE parser.
+ */
+final class AiConversationTestSupport {
+
+  static final String LLAMA = "llama3.1:8b";
+  static final String QWEN = "qwen3:14b";
+  static final String TINY = "tiny:1b";
+
+  static final ObjectMapper MAPPER = new ObjectMapper();
+
+  /** One parsed server-sent event. */
+  record Sse(String name, JsonNode data) {}
+
+  private AiConversationTestSupport() {}
+
+  /** Parses an event stream, ignoring comment frames. */
+  static List<Sse> parse(String body) {
+    List<Sse> events = new ArrayList<>();
+    for (String block : body.split("\n\n")) {
+      String name = null;
+      String data = null;
+      for (String line : block.split("\n")) {
+        if (line.startsWith("event: ")) {
+          name = line.substring(7);
+        } else if (line.startsWith("data: ")) {
+          data = line.substring(6);
+        }
+      }
+      if (name != null && data != null) {
+        events.add(new Sse(name, MAPPER.readTree(data)));
+      }
+    }
+    return events;
+  }
+
+  static List<String> names(List<Sse> events) {
+    return events.stream().map(Sse::name).toList();
+  }
+
+  /** Teaches a fake node the three test models. */
+  static FakeOllama withModels(FakeOllama ollama) {
+    return ollama
+        .tags(
+            FakeOllama.tag(LLAMA, "sha-l", 4_920_753_328L, "llama", "8.0B", "Q4_K_M"),
+            FakeOllama.tag(QWEN, "sha-q", 9_000_000_000L, "qwen3", "14B", "Q4_K_M"),
+            FakeOllama.tag(TINY, "sha-t", 600_000_000L, "tiny", "1B", "Q4_0"))
+        .show(LLAMA, 131_072, "completion")
+        .show(QWEN, 40_960, "completion", "thinking")
+        .show(TINY, 1_024, "completion");
+  }
+
+  static AiNode node(String id, String name, String address) {
+    return AiNode.builder()
+        .id(id)
+        .name(name)
+        .status(NodeStatus.ONLINE)
+        .os("Windows 11")
+        .models(List.of(LLAMA, QWEN, TINY))
+        .vramGb(16.0)
+        .address(address)
+        .lastHeartbeatAt(Instant.now())
+        .build();
+  }
+
+  static String uniqueNodeId() {
+    return "node-" + UUID.randomUUID();
+  }
+
+  static String saveUser(
+      UserRepository users, JwtUtil jwt, String username, String... permissions) {
+    users.save(
+        User.builder()
+            .username(username)
+            .email(username + "@example.com")
+            .password("x")
+            .permissions(new HashSet<>(Set.of(permissions)))
+            .build());
+    return jwt.generateToken(username);
+  }
+
+  static AiConversation seedConversation(
+      AiConversationRepository conversations, String owner, String title, ModelTarget target) {
+    Instant now = Instant.now();
+    return conversations.save(
+        AiConversation.builder()
+            .ownerUsername(owner)
+            .title(title)
+            .titleSource(AiConversation.TITLE_DEFAULT)
+            .target(target)
+            .nextSeq(1)
+            .schemaVersion(AiConversation.SCHEMA_VERSION)
+            .createdAt(now)
+            .updatedAt(now)
+            .build());
+  }
+
+  /** Appends a stored message directly (bypassing the API) and keeps the counters in step. */
+  static AiMessage seedMessage(
+      AiConversationRepository conversations,
+      AiMessageRepository messages,
+      AiConversation conversation,
+      String role,
+      String content,
+      String status) {
+    AiConversation fresh = conversations.findById(conversation.getId()).orElseThrow();
+    AiMessage saved =
+        messages.save(
+            AiMessage.builder()
+                .conversationId(fresh.getId())
+                .ownerUsername(fresh.getOwnerUsername())
+                .seq(fresh.getNextSeq())
+                .parentId(fresh.getActiveLeafId())
+                .role(role)
+                .content(content)
+                .status(status)
+                .schemaVersion(AiMessage.SCHEMA_VERSION)
+                .createdAt(Instant.now())
+                .build());
+    fresh.setNextSeq(fresh.getNextSeq() + 1);
+    fresh.setActiveLeafId(saved.getId());
+    fresh.setMessageCount(fresh.getMessageCount() + 1);
+    conversations.save(fresh);
+    return saved;
+  }
+
+  static AiMessage seedUser(
+      AiConversationRepository c, AiMessageRepository m, AiConversation conv, String content) {
+    return seedMessage(c, m, conv, AiMessage.ROLE_USER, content, AiMessage.STATUS_COMPLETE);
+  }
+
+  static AiMessage seedAssistant(
+      AiConversationRepository c, AiMessageRepository m, AiConversation conv, String content) {
+    return seedMessage(c, m, conv, AiMessage.ROLE_ASSISTANT, content, AiMessage.STATUS_COMPLETE);
+  }
+}
