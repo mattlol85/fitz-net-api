@@ -95,6 +95,19 @@ All need `AI_USER` or `ADMIN` (`AiCatalogController`, gRPC `AiChatService`). New
 - Effective node status (`NodeStatusResolver`) is the only status to expose or route on: OFFLINE when the heartbeat is older than `ai.node.stale-after`, BUSY when the API has a generation in flight (`NodeActivityTracker`).
 - `ModelRouter.route(model, nodeId|null, excluded)` resolves a target (Auto order in `AutoOrder`); `OllamaTurnStreamer` runs one generation and returns a `TurnResult` (it never writes `meta`/`done`/`error`).
 - The turn engine talks to Ollama through the JDK `HttpClient` (HTTP/1.1; cancel the pending future before headers, close the body stream after), not `HttpURLConnection`: `HttpURLConnection.disconnect()` cannot wake a thread blocked reading a silent body, so cancel would be late. The JDK client has no read timeout, so the ticker enforces `ollama.read-timeout` as upstream silence.
+### Matt-GPT v2 conversations (`/ai/conversations/**`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET / POST | `/ai/conversations` | list (`q`, `limit`, `offset`; pinned first) / create |
+| GET / PATCH / DELETE | `/ai/conversations/{id}` | detail with messages and context / PATCH (absent = untouched, `target` and `settings` replaced whole) / delete |
+| POST | `/ai/conversations/{id}/title` | best-effort model title, unchanged on any failure |
+| GET | `/ai/conversations/{id}/context?model=&nodeId=` | context usage preflight (503 when the target cannot be resolved) |
+| POST | `/ai/conversations/{id}/summarize` | blocking summary of the trimmed turns (409 when nothing is trimmed) |
+| POST | `/ai/conversations/{id}/messages`, `.../messages/{mid}/regenerate`, `.../messages/{mid}/edit` | `text/event-stream` turns (meta, status, thinking, token, done or error) |
+
+Someone else's conversation is a 404. `TurnService.prepare` validates and applies (400/404/409, one generation per conversation via `GenerationRegistry`), `TurnService.run` routes, builds the prompt (`ContextBuilder`), streams and always persists the assistant message. Part 3 plugs in through `ConversationSettingsResolver` (presets) and `MessageLifecycleHook` (attachment cascade).
+
 - Background work must go through `MdcPropagation` so the `correlationId` follows it.
 
 **Usernames are case-insensitive and stored lowercase.** Input is trimmed and lowercased before lookup, so `ZMat` and `zmat` are the same account. Login, reads, updates and deletes accept any casing; responses return the stored lowercase name.
