@@ -34,4 +34,10 @@ public class AiNode {
   String address;
   Instant registeredAt;
   Instant lastHeartbeatAt;
+  /** GPU memory total in MiB, as last reported by the node's heartbeat (nullable: old installers omit it). */
+  Integer vramTotalMb;
+  /** GPU memory in use by everything on the node (games included) in MiB, from the heartbeat. */
+  Integer vramUsedMb;
+  /** When {@link #vramTotalMb} / {@link #vramUsedMb} were last reported. */
+  Instant vramReportedAt;
 }

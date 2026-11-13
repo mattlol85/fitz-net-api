@@ -50,18 +50,21 @@ public class OllamaChatStreamer {
   private final Duration connectTimeout;
   private final Duration readTimeout;
   private final Duration maxStreamDuration;
+  private final String keepAlive;
 
   public OllamaChatStreamer(
       ObjectMapper objectMapper,
       OllamaModelInfo modelInfo,
       @Value("${ollama.connect-timeout:5s}") Duration connectTimeout,
       @Value("${ollama.read-timeout:180s}") Duration readTimeout,
-      @Value("${ollama.max-stream-duration:10m}") Duration maxStreamDuration) {
+      @Value("${ollama.max-stream-duration:10m}") Duration maxStreamDuration,
+      @Value("${ollama.keep-alive:30m}") String keepAlive) {
     this.objectMapper = objectMapper;
     this.modelInfo = modelInfo;
     this.connectTimeout = connectTimeout;
     this.readTimeout = readTimeout;
     this.maxStreamDuration = maxStreamDuration;
+    this.keepAlive = keepAlive;
   }
 
   public void stream(ChatTarget target, String prompt, OutputStream out) {
@@ -69,7 +72,7 @@ public class OllamaChatStreamer {
   }
 
   public void stream(ChatTarget target, List<ChatMessageDto> messages, OutputStream out) {
-    stream(target, messages, new SseWriter(out));
+    stream(target, messages, new SseChatEventSink(out, objectMapper));
   }
 
   public void stream(ChatTarget target, List<ChatMessageDto> messages, ChatEventSink sse) {
@@ -159,6 +162,7 @@ public class OllamaChatStreamer {
                     .map(m -> Map.of("role", m.getRole(), "content", m.getContent()))
                     .toList(),
             "stream", true,
+            "keep_alive", keepAlive,
             "options", Map.of("num_ctx", contextLength));
     HttpURLConnection connection =
         (HttpURLConnection)
@@ -179,39 +183,6 @@ public class OllamaChatStreamer {
       sse.event("error", Map.of("message", message));
     } catch (UncheckedIOException clientGone) {
       // Nobody left to tell.
-    }
-  }
-
-  /** Writes SSE frames, surfacing downstream write failures as {@link UncheckedIOException}. */
-  private final class SseWriter implements ChatEventSink {
-    private final OutputStream out;
-
-    SseWriter(OutputStream out) {
-      this.out = out;
-    }
-
-    @Override
-    public void event(String name, Map<String, ?> data) {
-      try {
-        write("event: " + name + "\ndata: " + objectMapper.writeValueAsString(data) + "\n\n");
-      } catch (tools.jackson.core.JacksonException ex) {
-        throw new IllegalStateException(ex);
-      }
-    }
-
-    /** An SSE comment, so proxies still see traffic. */
-    @Override
-    public void keepAlive() {
-      write(":\n\n");
-    }
-
-    private void write(String frame) {
-      try {
-        out.write(frame.getBytes(StandardCharsets.UTF_8));
-        out.flush();
-      } catch (IOException ex) {
-        throw new UncheckedIOException(ex);
-      }
     }
   }
 }

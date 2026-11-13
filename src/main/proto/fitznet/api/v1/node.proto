@@ -71,6 +71,10 @@ message HeartbeatRequest {
   optional string status = 3;
   ModelList models = 4;
   optional string address = 5;
+  // Optional GPU memory in MiB (nvidia-smi memory.total / memory.used across all processes). Absent
+  // leaves the stored value untouched, so nodes on an older installer keep working.
+  optional int32 vram_total_mb = 6;
+  optional int32 vram_used_mb = 7;
 }
 
 message HeartbeatResponse {}

@@ -49,12 +49,14 @@ public class NodeController {
   public void heartbeat(
       @RequestHeader("X-Node-Id") String nodeId,
       @RequestHeader("X-Node-Key") String nodeKey,
-      @RequestBody(required = false) NodeHeartbeatRequestDto request) {
+      @RequestBody(required = false) @Valid NodeHeartbeatRequestDto request) {
     log.debug("Request at /node/heartbeat - nodeId: {}", nodeId);
     NodeStatus status = parseStatus(request != null ? request.getStatus() : null);
     List<String> models = request != null ? request.getModels() : null;
     String address = request != null ? request.getAddress() : null;
-    aiNodeService.heartbeat(nodeId, nodeKey, status, models, address);
+    Integer vramTotalMb = request != null ? request.getVramTotalMb() : null;
+    Integer vramUsedMb = request != null ? request.getVramUsedMb() : null;
+    aiNodeService.heartbeat(nodeId, nodeKey, status, models, address, vramTotalMb, vramUsedMb);
   }
 
   @GetMapping("/node/list")

@@ -1,0 +1,566 @@
+syntax = "proto3";
+
+// gRPC equivalents of the /ai/** REST endpoints (Matt-GPT v2; contract: docs/ai-chat-contract.md in
+// the Fitz-Net hub). Every RPC needs AI_USER or ADMIN, so none is in GrpcAuthInterceptor.PUBLIC_METHODS.
+//
+// Messages mirror the JSON field for field in snake_case: nullable JSON scalars are `optional`,
+// message-typed fields carry their own presence, lists are `repeated`, instants are Timestamp, and
+// enumerated strings (state, status, source, capabilities) stay strings so new values need no proto
+// change. Never renumber fields.
+package fitznet.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "org.fitznet.fitznetapi.grpc.proto";
+
+service AiChatService {
+  // GET /ai/models[?refresh=true]
+  rpc ListModels(ListModelsRequest) returns (ModelCatalog);
+  // POST /ai/warmup
+  rpc WarmUp(WarmUpRequest) returns (WarmUpResponse);
+  // GET /ai/preferences
+  rpc GetPreferences(GetPreferencesRequest) returns (ChatPreferences);
+  // PUT /ai/preferences
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (ChatPreferences);
+
+  // GET /ai/conversations?q=&limit=&offset=
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  // POST /ai/conversations
+  rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+  // GET /ai/conversations/{id}
+  rpc GetConversation(GetConversationRequest) returns (ConversationDetail);
+  // PATCH /ai/conversations/{id}
+  rpc UpdateConversation(UpdateConversationRequest) returns (Conversation);
+  // DELETE /ai/conversations/{id}
+  rpc DeleteConversation(DeleteConversationRequest) returns (DeleteResponse);
+  // POST /ai/conversations/{id}/title
+  rpc GenerateTitle(GenerateTitleRequest) returns (Conversation);
+  // GET /ai/conversations/{id}/context?model=&nodeId=
+  rpc GetContextUsage(GetContextUsageRequest) returns (ContextUsage);
+  // POST /ai/conversations/{id}/summarize
+  rpc SummarizeConversation(SummarizeConversationRequest) returns (SummarizeConversationResponse);
+
+  // POST /ai/conversations/{id}/messages. Server stream of the SSE events: meta, status*, thinking*,
+  // token*, then exactly one done | error (none when the client cancels the call).
+  rpc SendMessage(SendMessageRequest) returns (stream TurnEvent);
+  // POST /ai/conversations/{id}/messages/{messageId}/regenerate
+  rpc RegenerateMessage(RegenerateMessageRequest) returns (stream TurnEvent);
+  // POST /ai/conversations/{id}/messages/{messageId}/edit
+  rpc EditMessage(EditMessageRequest) returns (stream TurnEvent);
+
+  // POST /ai/attachments (the REST body carries base64; here the raw image bytes)
+  rpc UploadAttachment(UploadAttachmentRequest) returns (Attachment);
+  // GET /ai/attachments/{id}
+  rpc GetAttachment(GetAttachmentRequest) returns (AttachmentContent);
+
+  // GET /ai/presets
+  rpc ListPresets(ListPresetsRequest) returns (ListPresetsResponse);
+  // POST /ai/presets
+  rpc CreatePreset(CreatePresetRequest) returns (Preset);
+  // PUT /ai/presets/{id}
+  rpc UpdatePreset(UpdatePresetRequest) returns (Preset);
+  // DELETE /ai/presets/{id}
+  rpc DeletePreset(DeletePresetRequest) returns (DeleteResponse);
+}
+
+// A model on a specific node, or (node_id unset) wherever Auto routes.
+message ModelTarget {
+  string model = 1;
+  optional string node_id = 2;
+}
+
+message ListModelsRequest {
+  // Bypass the catalogue caches (the server rate-limits it to one forced fetch per node per 2 s).
+  bool refresh = 1;
+}
+
+message ModelCatalog {
+  google.protobuf.Timestamp generated_at = 1;
+  // Every registered node, OFFLINE ones included, sorted by name.
+  repeated CatalogNode nodes = 2;
+  // One row per distinct model name on nodes that are not OFFLINE: the "Auto" entries.
+  repeated AutoModel models = 3;
+}
+
+message CatalogNode {
+  string id = 1;
+  string name = 2;
+  // Effective status: ONLINE, BUSY or OFFLINE.
+  string status = 3;
+  optional string os = 4;
+  google.protobuf.Timestamp last_heartbeat_at = 5;
+  int32 active_generations = 6;
+  // True when Ollama was unreachable and the data is cached or heartbeat-only.
+  bool catalog_stale = 7;
+  CatalogVram vram = 8;
+  repeated CatalogModel models = 9;
+}
+
+message CatalogVram {
+  optional int32 total_mb = 1;
+  optional int32 used_mb = 2;
+  // "heartbeat" or "ollama": what used_mb is based on; unset when unknown.
+  optional string source = 3;
+}
+
+message CatalogModel {
+  string name = 1;
+  optional string family = 2;
+  optional string parameter_size = 3;
+  optional string quantization = 4;
+  optional int64 size_bytes = 5;
+  // Effective window: min(native, ollama.max-num-ctx).
+  optional int32 context_length = 6;
+  // Native window.
+  optional int32 max_context_length = 7;
+  // "completion", "vision", "thinking", "tools"; empty when unknown.
+  repeated string capabilities = 8;
+  // In memory on the node, or a warm-up for it is in flight.
+  bool loaded = 9;
+  google.protobuf.Timestamp loaded_until = 10;
+  optional int64 vram_mb = 11;
+}
+
+message AutoModel {
+  string name = 1;
+  repeated string node_ids = 2;
+  repeated string loaded_on = 3;
+  // Where Auto would route right now; the details below are that node's copy of the model.
+  optional string auto_node_id = 4;
+  optional string parameter_size = 5;
+  optional string quantization = 6;
+  optional int32 context_length = 7;
+  repeated string capabilities = 8;
+}
+
+message WarmUpRequest {
+  string model = 1;
+  optional string node_id = 2;
+}
+
+message WarmUpResponse {
+  // "loaded", "loading" or "unavailable".
+  string state = 1;
+  optional string node_id = 2;
+  optional string node_name = 3;
+  string model = 4;
+  optional string message = 5;
+}
+
+message GetPreferencesRequest {}
+
+message ChatPreferences {
+  ModelTarget last_target = 1;
+  optional string last_preset_id = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+// Presence decides what happens: an unset field is left alone, a field that is set replaces the
+// stored value. To clear last_target send an empty ModelTarget (blank model); to clear
+// last_preset_id send an empty string.
+message UpdatePreferencesRequest {
+  ModelTarget last_target = 1;
+  optional string last_preset_id = 2;
+}
+
+// ---- conversations (section 6) --------------------------------------------------------------
+
+message ConversationSettings {
+  optional string preset_id = 1;
+  optional string system_prompt = 2;
+}
+
+message Conversation {
+  string id = 1;
+  string title = 2;
+  // "default", "auto" or "user".
+  string title_source = 3;
+  bool pinned = 4;
+  // Unset until first chosen.
+  ModelTarget target = 5;
+  ConversationSettings settings = 6;
+  int32 message_count = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// A Conversation plus, for a message-content search hit, a snippet around the match.
+message ConversationSummary {
+  string id = 1;
+  string title = 2;
+  string title_source = 3;
+  bool pinned = 4;
+  ModelTarget target = 5;
+  ConversationSettings settings = 6;
+  int32 message_count = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  optional string match_snippet = 10;
+}
+
+message ListConversationsRequest {
+  // Case-insensitive literal substring of the title or any message content.
+  optional string q = 1;
+  // Default 50, at most 200.
+  optional int32 limit = 2;
+  optional int32 offset = 3;
+}
+
+message ListConversationsResponse {
+  repeated ConversationSummary items = 1;
+  bool has_more = 2;
+}
+
+message CreateConversationRequest {
+  optional string title = 1;
+  ModelTarget target = 2;
+  ConversationSettings settings = 3;
+}
+
+message GetConversationRequest {
+  string conversation_id = 1;
+}
+
+// The rolling summary of the oldest turns.
+message ChatSummary {
+  string text = 1;
+  int32 covers_through_seq = 2;
+  optional string model = 3;
+  bool partial = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ContextUsage {
+  string model = 1;
+  string node_id = 2;
+  int32 context_length = 3;
+  int32 used_tokens = 4;
+  int32 total_tokens = 5;
+  bool fits = 6;
+  int32 trimmed_count = 7;
+  bool summary_active = 8;
+}
+
+message MessageAttachment {
+  string id = 1;
+  string kind = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string name = 5;
+}
+
+// Reserved for tools; always empty in v2.
+message MessageToolCall {
+  string id = 1;
+  string name = 2;
+  string arguments = 3;
+}
+
+message MessageError {
+  string code = 1;
+  string message = 2;
+}
+
+message MessageGeneration {
+  string node_id = 1;
+  string node_name = 2;
+  string model = 3;
+  bool auto = 4;
+  optional string preset_id = 5;
+  optional string preset_name = 6;
+  optional int32 context_length = 7;
+  optional int32 prompt_tokens = 8;
+  optional int32 completion_tokens = 9;
+  optional int64 ttft_ms = 10;
+  optional int64 total_ms = 11;
+  optional int64 load_ms = 12;
+  optional int64 thinking_ms = 13;
+  optional double tokens_per_second = 14;
+  // "stop", "length", "cancelled" or "error".
+  string finish_reason = 15;
+  // The done event's context_overflow; unset unless the turn completed.
+  optional bool context_overflow = 16;
+}
+
+message ConversationMessage {
+  string id = 1;
+  int32 seq = 2;
+  optional string parent_id = 3;
+  // "user" or "assistant".
+  string role = 4;
+  string content = 5;
+  optional string thinking = 6;
+  repeated MessageAttachment attachments = 7;
+  repeated MessageToolCall tool_calls = 8;
+  // "complete", "streaming", "cancelled" or "error".
+  string status = 9;
+  MessageError error = 10;
+  MessageGeneration generation = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp edited_at = 13;
+}
+
+message ConversationDetail {
+  string id = 1;
+  string title = 2;
+  string title_source = 3;
+  bool pinned = 4;
+  ModelTarget target = 5;
+  ConversationSettings settings = 6;
+  int32 message_count = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  ChatSummary summary = 10;
+  // Unset when the conversation's target cannot be resolved right now.
+  ContextUsage context = 11;
+  repeated ConversationMessage messages = 12;
+}
+
+// Presence decides what happens: an unset field is left alone, a set one replaces the stored value.
+// An empty ModelTarget clears target; settings replaces both settings fields (so an empty
+// ConversationSettings clears them).
+message UpdateConversationRequest {
+  string conversation_id = 1;
+  optional string title = 2;
+  optional bool pinned = 3;
+  ModelTarget target = 4;
+  ConversationSettings settings = 5;
+}
+
+message DeleteConversationRequest {
+  string conversation_id = 1;
+}
+
+// Deletes return { deleted: true }, never an empty message.
+message DeleteResponse {
+  bool deleted = 1;
+}
+
+message GenerateTitleRequest {
+  string conversation_id = 1;
+}
+
+message GetContextUsageRequest {
+  string conversation_id = 1;
+  // Without a model the conversation's target is used.
+  optional string model = 2;
+  optional string node_id = 3;
+}
+
+message SummarizeConversationRequest {
+  string conversation_id = 1;
+}
+
+message SummarizeConversationResponse {
+  Conversation conversation = 1;
+  ChatSummary summary = 2;
+  ContextUsage context = 3;
+}
+
+// ---- turns (section 7) ----------------------------------------------------------------------
+
+message SendMessageRequest {
+  string conversation_id = 1;
+  string content = 2;
+  repeated string attachment_ids = 3;
+  // Optional: becomes the conversation's target before generating.
+  ModelTarget target = 4;
+}
+
+message RegenerateMessageRequest {
+  string conversation_id = 1;
+  string message_id = 2;
+  ModelTarget target = 3;
+}
+
+// Wrapped so "no attachments" (empty list) is distinguishable from "keep the existing ones" (unset).
+message AttachmentIdList {
+  repeated string values = 1;
+}
+
+message EditMessageRequest {
+  string conversation_id = 1;
+  string message_id = 2;
+  string content = 3;
+  AttachmentIdList attachment_ids = 4;
+  ModelTarget target = 5;
+}
+
+// Grammar: meta? (status | thinking | token | meta)* (done | error). meta repeats only after an Auto
+// failover (same ids). Fields 7 and 8 are reserved for tool_call and tool_result.
+message TurnEvent {
+  reserved 7, 8;
+  oneof event {
+    TurnMeta meta = 1;
+    TurnStatus status = 2;
+    TurnDelta thinking = 3;
+    TurnDelta token = 4;
+    TurnDone done = 5;
+    TurnError error = 6;
+  }
+}
+
+message TurnContext {
+  int32 prompt_tokens_estimate = 1;
+  int32 trimmed_count = 2;
+  bool summary_active = 3;
+  int32 images_omitted = 4;
+}
+
+message TurnMeta {
+  string conversation_id = 1;
+  string user_message_id = 2;
+  string assistant_message_id = 3;
+  string node_id = 4;
+  string node_name = 5;
+  string model = 6;
+  bool auto = 7;
+  optional string preset_id = 8;
+  int32 context_length = 9;
+  TurnContext context = 10;
+}
+
+message TurnStatus {
+  // "loading_model", "generating" or "failover".
+  string phase = 1;
+  optional string node_id = 2;
+  optional string model = 3;
+  optional string message = 4;
+  optional string from_node_id = 5;
+  optional string to_node_id = 6;
+}
+
+// A reasoning or answer delta.
+message TurnDelta {
+  string content = 1;
+}
+
+message TurnStats {
+  optional int64 ttft_ms = 1;
+  int64 total_ms = 2;
+  int64 load_ms = 3;
+  optional int64 thinking_ms = 4;
+  optional double tokens_per_second = 5;
+}
+
+message TurnDone {
+  string message_id = 1;
+  string user_message_id = 2;
+  int32 prompt_tokens = 3;
+  int32 completion_tokens = 4;
+  int32 context_length = 5;
+  // "stop" or "length".
+  string finish_reason = 6;
+  bool context_overflow = 7;
+  TurnStats stats = 8;
+}
+
+message TurnAlternative {
+  string node_id = 1;
+  string node_name = 2;
+  string model = 3;
+  bool loaded = 4;
+  string status = 5;
+}
+
+message TurnError {
+  string message_id = 1;
+  string user_message_id = 2;
+  string code = 3;
+  string message = 4;
+  bool retryable = 5;
+  // Present (possibly empty) for NODE_OFFLINE, MODEL_NOT_ON_NODE, NO_NODE_AVAILABLE, NODE_UNREACHABLE.
+  repeated TurnAlternative alternatives = 6;
+}
+
+// ---- attachments (section 10) ---------------------------------------------------------------
+
+message UploadAttachmentRequest {
+  string name = 1;
+  // "image/png", "image/jpeg" or "image/webp"; the bytes must start with that format's magic number.
+  string mime_type = 2;
+  // At most ai.chat.max-attachment-bytes (3 MB by default).
+  bytes data = 3;
+}
+
+message Attachment {
+  string id = 1;
+  string kind = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string name = 5;
+}
+
+message GetAttachmentRequest {
+  string attachment_id = 1;
+}
+
+message AttachmentContent {
+  string mime_type = 1;
+  bytes data = 2;
+}
+
+// ---- presets (section 9) --------------------------------------------------------------------
+
+message Preset {
+  string id = 1;
+  // 1 to 60 characters.
+  string name = 2;
+  optional string description = 3;
+  // Unset: "whatever model is selected".
+  optional string model = 4;
+  // Unset: Auto. Only meaningful with a model.
+  optional string node_id = 5;
+  optional string system_prompt = 6;
+  // 0 to 2; unset: the model default.
+  optional double temperature = 7;
+  // 512 to 131072; unset: the model default. Capped at run time.
+  optional int32 num_ctx = 8;
+  // "private" or "shared".
+  string visibility = 9;
+  // Shared only: unset means everyone with AI access.
+  optional string required_permission = 10;
+  string owner_username = 11;
+  // Computed for the caller.
+  bool editable = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+message ListPresetsRequest {}
+
+message ListPresetsResponse {
+  repeated Preset items = 1;
+}
+
+message CreatePresetRequest {
+  string name = 1;
+  optional string description = 2;
+  optional string model = 3;
+  optional string node_id = 4;
+  optional string system_prompt = 5;
+  optional double temperature = 6;
+  optional int32 num_ctx = 7;
+  // Defaults to "private". "shared" needs ADMIN.
+  optional string visibility = 8;
+  optional string required_permission = 9;
+}
+
+// Replaces the whole preset, like the REST PUT.
+message UpdatePresetRequest {
+  string preset_id = 1;
+  string name = 2;
+  optional string description = 3;
+  optional string model = 4;
+  optional string node_id = 5;
+  optional string system_prompt = 6;
+  optional double temperature = 7;
+  optional int32 num_ctx = 8;
+  optional string visibility = 9;
+  optional string required_permission = 10;
+}
+
+message DeletePresetRequest {
+  string preset_id = 1;
+}

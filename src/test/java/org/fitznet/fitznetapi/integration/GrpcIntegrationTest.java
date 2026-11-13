@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.Set;
 import org.fitznet.fitznetapi.config.EmbeddedMongoTestConfiguration;
+import org.fitznet.fitznetapi.grpc.proto.AiChatServiceGrpc;
 import org.fitznet.fitznetapi.grpc.proto.ChatEvent;
 import org.fitznet.fitznetapi.grpc.proto.ChatMessage;
 import org.fitznet.fitznetapi.grpc.proto.ChatRequest;
@@ -29,14 +30,17 @@ import org.fitznet.fitznetapi.grpc.proto.CreatePermissionRequest;
 import org.fitznet.fitznetapi.grpc.proto.CreateUserRequest;
 import org.fitznet.fitznetapi.grpc.proto.DeleteNodeRequest;
 import org.fitznet.fitznetapi.grpc.proto.GetInfoRequest;
+import org.fitznet.fitznetapi.grpc.proto.GetPreferencesRequest;
 import org.fitznet.fitznetapi.grpc.proto.GetMeRequest;
 import org.fitznet.fitznetapi.grpc.proto.HeartbeatRequest;
 import org.fitznet.fitznetapi.grpc.proto.InfoServiceGrpc;
+import org.fitznet.fitznetapi.grpc.proto.ListModelsRequest;
 import org.fitznet.fitznetapi.grpc.proto.ListNodesRequest;
 import org.fitznet.fitznetapi.grpc.proto.ListPermissionsRequest;
 import org.fitznet.fitznetapi.grpc.proto.ListUsersRequest;
 import org.fitznet.fitznetapi.grpc.proto.LoginRequest;
 import org.fitznet.fitznetapi.grpc.proto.ModelList;
+import org.fitznet.fitznetapi.grpc.proto.ModelTarget;
 import org.fitznet.fitznetapi.grpc.proto.NodeServiceGrpc;
 import org.fitznet.fitznetapi.grpc.proto.NodeStatus;
 import org.fitznet.fitznetapi.grpc.proto.PermissionList;
@@ -44,15 +48,19 @@ import org.fitznet.fitznetapi.grpc.proto.PermissionServiceGrpc;
 import org.fitznet.fitznetapi.grpc.proto.ReadUserRequest;
 import org.fitznet.fitznetapi.grpc.proto.RegisterNodeRequest;
 import org.fitznet.fitznetapi.grpc.proto.SetUserPermissionsRequest;
+import org.fitznet.fitznetapi.grpc.proto.UpdatePreferencesRequest;
 import org.fitznet.fitznetapi.grpc.proto.UpdateProfileRequest;
 import org.fitznet.fitznetapi.grpc.proto.UserPermissionRequest;
 import org.fitznet.fitznetapi.grpc.proto.UserServiceGrpc;
+import org.fitznet.fitznetapi.grpc.proto.WarmUpRequest;
 import org.fitznet.fitznetapi.model.AiNode;
 import org.fitznet.fitznetapi.model.PermissionDefinition;
 import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.AiNodeRepository;
+import org.fitznet.fitznetapi.repository.AiUserPrefsRepository;
 import org.fitznet.fitznetapi.repository.PermissionRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
+import org.fitznet.fitznetapi.service.ai.FakeOllama;
 import org.fitznet.fitznetapi.util.JwtUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,6 +87,7 @@ class GrpcIntegrationTest {
   @Autowired private UserRepository userRepository;
   @Autowired private PermissionRepository permissionRepository;
   @Autowired private AiNodeRepository aiNodeRepository;
+  @Autowired private AiUserPrefsRepository aiUserPrefsRepository;
   @Autowired private JwtUtil jwtUtil;
 
   private ManagedChannel channel;
@@ -89,6 +98,7 @@ class GrpcIntegrationTest {
     channel = ManagedChannelBuilder.forAddress("localhost", port).usePlaintext().build();
     userRepository.deleteAll();
     aiNodeRepository.deleteAll();
+    aiUserPrefsRepository.deleteAll();
     permissionRepository.deleteAll();
     permissionRepository.save(PermissionDefinition.builder().name("ADMIN").build());
     permissionRepository.save(PermissionDefinition.builder().name("AI_USER").build());
@@ -337,6 +347,34 @@ class GrpcIntegrationTest {
     assertEquals(List.of("llama3:8b"), listed.getModelsList());
     assertEquals(24.0, listed.getVramGb());
 
+    nodes.heartbeat(
+        HeartbeatRequest.newBuilder()
+            .setNodeId(registered.getNodeId())
+            .setNodeKey(registered.getNodeKey())
+            .setVramTotalMb(16384)
+            .setVramUsedMb(4096)
+            .build());
+    AiNode withVram = aiNodeRepository.findById(registered.getNodeId()).orElseThrow();
+    assertEquals(16384, withVram.getVramTotalMb());
+    assertEquals(4096, withVram.getVramUsedMb());
+    nodes.heartbeat(
+        HeartbeatRequest.newBuilder()
+            .setNodeId(registered.getNodeId())
+            .setNodeKey(registered.getNodeKey())
+            .build());
+    assertEquals(
+        16384, aiNodeRepository.findById(registered.getNodeId()).orElseThrow().getVramTotalMb());
+    assertStatus(
+        Status.Code.INVALID_ARGUMENT,
+        "400",
+        () ->
+            nodes.heartbeat(
+                HeartbeatRequest.newBuilder()
+                    .setNodeId(registered.getNodeId())
+                    .setNodeKey(registered.getNodeKey())
+                    .setVramUsedMb(-5)
+                    .build()));
+
     assertStatus(
         Status.Code.UNAUTHENTICATED,
         "401",
@@ -425,5 +463,180 @@ class GrpcIntegrationTest {
                     hi.toBuilder()
                         .addMessages(ChatMessage.newBuilder().setRole("robot").setContent("x"))
                         .build()));
+  }
+
+  // ---- AiChatService (Matt-GPT v2 node/model layer) ----------------------------------------
+
+  private static final String AI_MODEL = "llama3.1:8b";
+
+  private String saveCatalogueNode(FakeOllama ollama) {
+    ollama
+        .tags(FakeOllama.tag(AI_MODEL, "sha-1", 4_920_753_328L, "llama", "8.0B", "Q4_K_M"))
+        .ps(FakeOllama.loaded(AI_MODEL, 5_300L * 1024 * 1024, "2026-11-12T13:33:00-05:00"))
+        .show(AI_MODEL, 131_072, "completion", "vision");
+    String nodeId = "catalogue-node";
+    aiNodeRepository.save(
+        AiNode.builder()
+            .id(nodeId)
+            .name("Matt-PC")
+            .status(org.fitznet.fitznetapi.model.NodeStatus.ONLINE)
+            .os("Windows 11")
+            .models(List.of(AI_MODEL))
+            .vramGb(16.0)
+            .address(ollama.address())
+            .lastHeartbeatAt(java.time.Instant.now())
+            .build());
+    return nodeId;
+  }
+
+  @Test
+  void aiChat_listModelsReturnsTheCatalogue() throws Exception {
+    try (FakeOllama ollama = new FakeOllama()) {
+      String nodeId = saveCatalogueNode(ollama);
+      String token = saveUser("chatter", "USER", "AI_USER");
+
+      var catalog =
+          withToken(AiChatServiceGrpc.newBlockingStub(channel), token)
+              .listModels(ListModelsRequest.newBuilder().setRefresh(true).build());
+
+      assertEquals(1, catalog.getNodesCount());
+      var node = catalog.getNodes(0);
+      assertEquals(nodeId, node.getId());
+      assertEquals("ONLINE", node.getStatus());
+      assertFalse(node.getCatalogStale());
+      assertEquals(16384, node.getVram().getTotalMb());
+      assertEquals("ollama", node.getVram().getSource());
+      var model = node.getModels(0);
+      assertEquals(AI_MODEL, model.getName());
+      assertEquals("8.0B", model.getParameterSize());
+      assertEquals(8192, model.getContextLength());
+      assertEquals(131072, model.getMaxContextLength());
+      assertEquals(List.of("completion", "vision"), model.getCapabilitiesList());
+      assertTrue(model.getLoaded());
+      assertTrue(model.hasLoadedUntil());
+      assertEquals(1, catalog.getModelsCount());
+      assertEquals(nodeId, catalog.getModels(0).getAutoNodeId());
+      assertEquals(List.of(nodeId), catalog.getModels(0).getLoadedOnList());
+    }
+  }
+
+  @Test
+  void aiChat_enforcesPermissions() {
+    String plain = saveUser("plain", "USER");
+    var chat = AiChatServiceGrpc.newBlockingStub(channel);
+
+    assertStatus(
+        Status.Code.UNAUTHENTICATED,
+        "401",
+        () -> chat.listModels(ListModelsRequest.getDefaultInstance()));
+    assertStatus(
+        Status.Code.UNAUTHENTICATED,
+        "401",
+        () -> chat.getPreferences(GetPreferencesRequest.getDefaultInstance()));
+    assertStatus(
+        Status.Code.PERMISSION_DENIED,
+        "403",
+        () -> withToken(chat, plain).listModels(ListModelsRequest.getDefaultInstance()));
+    assertStatus(
+        Status.Code.PERMISSION_DENIED,
+        "403",
+        () -> withToken(chat, plain).warmUp(WarmUpRequest.newBuilder().setModel(AI_MODEL).build()));
+    assertStatus(
+        Status.Code.PERMISSION_DENIED,
+        "403",
+        () -> withToken(chat, plain).getPreferences(GetPreferencesRequest.getDefaultInstance()));
+    assertStatus(
+        Status.Code.PERMISSION_DENIED,
+        "403",
+        () -> withToken(chat, plain).updatePreferences(UpdatePreferencesRequest.getDefaultInstance()));
+  }
+
+  @Test
+  void aiChat_warmUpReportsStateAndValidatesTheRequest() throws Exception {
+    try (FakeOllama ollama = new FakeOllama()) {
+      saveCatalogueNode(ollama);
+      var chat =
+          withToken(
+              AiChatServiceGrpc.newBlockingStub(channel), saveUser("chatter", "USER", "AI_USER"));
+
+      var loaded = chat.warmUp(WarmUpRequest.newBuilder().setModel(AI_MODEL).build());
+      assertEquals("loaded", loaded.getState());
+      assertEquals("catalogue-node", loaded.getNodeId());
+      assertEquals("Matt-PC", loaded.getNodeName());
+      assertFalse(loaded.hasMessage());
+
+      var unavailable = chat.warmUp(WarmUpRequest.newBuilder().setModel("nope:1b").build());
+      assertEquals("unavailable", unavailable.getState());
+      assertTrue(unavailable.hasMessage());
+
+      assertStatus(
+          Status.Code.INVALID_ARGUMENT,
+          "400",
+          () -> chat.warmUp(WarmUpRequest.getDefaultInstance()));
+    }
+  }
+
+  @Test
+  void aiChat_preferencesRoundTripPerUserWithPresenceSemantics() {
+    String alice = saveUser("alice", "USER", "AI_USER");
+    String bob = saveUser("bob", "USER", "AI_USER");
+    var aliceChat = withToken(AiChatServiceGrpc.newBlockingStub(channel), alice);
+    var bobChat = withToken(AiChatServiceGrpc.newBlockingStub(channel), bob);
+
+    var empty = aliceChat.getPreferences(GetPreferencesRequest.getDefaultInstance());
+    assertFalse(empty.hasLastTarget());
+    assertFalse(empty.hasUpdatedAt());
+
+    var saved =
+        aliceChat.updatePreferences(
+            UpdatePreferencesRequest.newBuilder()
+                .setLastTarget(ModelTarget.newBuilder().setModel(AI_MODEL).setNodeId("n1"))
+                .setLastPresetId("p1")
+                .build());
+    assertEquals(AI_MODEL, saved.getLastTarget().getModel());
+    assertEquals("n1", saved.getLastTarget().getNodeId());
+    assertEquals("p1", saved.getLastPresetId());
+    assertTrue(saved.hasUpdatedAt());
+
+    // Only the target is sent: the preset stays.
+    var retargeted =
+        aliceChat.updatePreferences(
+            UpdatePreferencesRequest.newBuilder()
+                .setLastTarget(ModelTarget.newBuilder().setModel("phi3:mini"))
+                .build());
+    assertEquals("phi3:mini", retargeted.getLastTarget().getModel());
+    assertFalse(retargeted.getLastTarget().hasNodeId());
+    assertEquals("p1", retargeted.getLastPresetId());
+
+    // Empty values clear.
+    var cleared =
+        aliceChat.updatePreferences(
+            UpdatePreferencesRequest.newBuilder()
+                .setLastTarget(ModelTarget.getDefaultInstance())
+                .setLastPresetId("")
+                .build());
+    assertFalse(cleared.hasLastTarget());
+    assertFalse(cleared.hasLastPresetId());
+
+    aliceChat.updatePreferences(
+        UpdatePreferencesRequest.newBuilder()
+            .setLastTarget(ModelTarget.newBuilder().setModel(AI_MODEL))
+            .build());
+    assertFalse(bobChat.getPreferences(GetPreferencesRequest.getDefaultInstance()).hasLastTarget());
+    assertEquals(
+        AI_MODEL,
+        aliceChat
+            .getPreferences(GetPreferencesRequest.getDefaultInstance())
+            .getLastTarget()
+            .getModel());
+
+    assertStatus(
+        Status.Code.INVALID_ARGUMENT,
+        "400",
+        () ->
+            aliceChat.updatePreferences(
+                UpdatePreferencesRequest.newBuilder()
+                    .setLastTarget(ModelTarget.newBuilder().setNodeId("n1"))
+                    .build()));
   }
 }

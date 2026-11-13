@@ -58,6 +58,7 @@ class OllamaChatStreamerTest {
             + "event: done\ndata: {\"promptTokens\":0,\"completionTokens\":0,\"contextLength\":8192}\n\n",
         sse.substring(meta.length()));
     assertTrue(receivedBody.contains("\"stream\":true"));
+    assertTrue(receivedBody.contains("\"keep_alive\":\"45m\""), receivedBody);
     assertTrue(receivedBody.contains("\"model\":\"qwen3:14b\""));
   }
 
@@ -191,7 +192,8 @@ class OllamaChatStreamerTest {
         new OllamaModelInfo(mapper, Duration.ofSeconds(2), 8192, Duration.ofMinutes(10)),
         Duration.ofSeconds(2),
         readTimeout,
-        maxStreamDuration);
+        maxStreamDuration,
+        "45m");
   }
 
   private ChatTarget target() {
