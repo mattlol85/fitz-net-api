@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+// gRPC equivalents of the /ai/** REST endpoints (Matt-GPT v2; contract: docs/ai-chat-contract.md in
+// the Fitz-Net hub). Every RPC needs AI_USER or ADMIN, so none is in GrpcAuthInterceptor.PUBLIC_METHODS.
+//
+// Messages mirror the JSON field for field in snake_case: nullable JSON scalars are `optional`,
+// message-typed fields carry their own presence, lists are `repeated`, instants are Timestamp, and
+// enumerated strings (state, status, source, capabilities) stay strings so new values need no proto
+// change. Never renumber fields; later RPCs of this service (conversations, turns, attachments,
+// presets) are added below the node/model layer.
+package fitznet.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "org.fitznet.fitznetapi.grpc.proto";
+
+service AiChatService {
+  // GET /ai/models[?refresh=true]
+  rpc ListModels(ListModelsRequest) returns (ModelCatalog);
+  // POST /ai/warmup
+  rpc WarmUp(WarmUpRequest) returns (WarmUpResponse);
+  // GET /ai/preferences
+  rpc GetPreferences(GetPreferencesRequest) returns (ChatPreferences);
+  // PUT /ai/preferences
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (ChatPreferences);
+}
+
+// A model on a specific node, or (node_id unset) wherever Auto routes.
+message ModelTarget {
+  string model = 1;
+  optional string node_id = 2;
+}
+
+message ListModelsRequest {
+  // Bypass the catalogue caches (the server rate-limits it to one forced fetch per node per 2 s).
+  bool refresh = 1;
+}
+
+message ModelCatalog {
+  google.protobuf.Timestamp generated_at = 1;
+  // Every registered node, OFFLINE ones included, sorted by name.
+  repeated CatalogNode nodes = 2;
+  // One row per distinct model name on nodes that are not OFFLINE: the "Auto" entries.
+  repeated AutoModel models = 3;
+}
+
+message CatalogNode {
+  string id = 1;
+  string name = 2;
+  // Effective status: ONLINE, BUSY or OFFLINE.
+  string status = 3;
+  optional string os = 4;
+  google.protobuf.Timestamp last_heartbeat_at = 5;
+  int32 active_generations = 6;
+  // True when Ollama was unreachable and the data is cached or heartbeat-only.
+  bool catalog_stale = 7;
+  CatalogVram vram = 8;
+  repeated CatalogModel models = 9;
+}
+
+message CatalogVram {
+  optional int32 total_mb = 1;
+  optional int32 used_mb = 2;
+  // "heartbeat" or "ollama": what used_mb is based on; unset when unknown.
+  optional string source = 3;
+}
+
+message CatalogModel {
+  string name = 1;
+  optional string family = 2;
+  optional string parameter_size = 3;
+  optional string quantization = 4;
+  optional int64 size_bytes = 5;
+  // Effective window: min(native, ollama.max-num-ctx).
+  optional int32 context_length = 6;
+  // Native window.
+  optional int32 max_context_length = 7;
+  // "completion", "vision", "thinking", "tools"; empty when unknown.
+  repeated string capabilities = 8;
+  // In memory on the node, or a warm-up for it is in flight.
+  bool loaded = 9;
+  google.protobuf.Timestamp loaded_until = 10;
+  optional int64 vram_mb = 11;
+}
+
+message AutoModel {
+  string name = 1;
+  repeated string node_ids = 2;
+  repeated string loaded_on = 3;
+  // Where Auto would route right now; the details below are that node's copy of the model.
+  optional string auto_node_id = 4;
+  optional string parameter_size = 5;
+  optional string quantization = 6;
+  optional int32 context_length = 7;
+  repeated string capabilities = 8;
+}
+
+message WarmUpRequest {
+  string model = 1;
+  optional string node_id = 2;
+}
+
+message WarmUpResponse {
+  // "loaded", "loading" or "unavailable".
+  string state = 1;
+  optional string node_id = 2;
+  optional string node_name = 3;
+  string model = 4;
+  optional string message = 5;
+}
+
+message GetPreferencesRequest {}
+
+message ChatPreferences {
+  ModelTarget last_target = 1;
+  optional string last_preset_id = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+// Presence decides what happens: an unset field is left alone, a field that is set replaces the
+// stored value. To clear last_target send an empty ModelTarget (blank model); to clear
+// last_preset_id send an empty string.
+message UpdatePreferencesRequest {
+  ModelTarget last_target = 1;
+  optional string last_preset_id = 2;
+}
