@@ -2,16 +2,26 @@ package org.fitznet.fitznetapi.service.ai;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
-import java.net.SocketTimeoutException;
+import java.net.ConnectException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.fitznet.fitznetapi.service.ChatEventSink;
@@ -46,10 +56,12 @@ import tools.jackson.databind.ObjectMapper;
  * ticker and the reader share the sink. The MDC {@code correlationId} is carried onto the ticker.
  * Each turn counts as one in-flight generation on its node for as long as it runs.
  *
- * <p>Talks to Ollama through {@link UpstreamHttp}, a plain-socket client whose {@code close()}
- * works from any thread while a read is blocked ({@code HttpURLConnection.disconnect()} does not):
- * dropping the socket is what cancels the generation on the GPU. Prompt, reply and reasoning content
- * are never logged.
+ * <p>Talks to Ollama through the JDK {@link HttpClient} (HTTP/1.1): cancelling the pending future
+ * before the headers, or closing the body stream after, drops the connection even while another
+ * thread is blocked reading ({@code HttpURLConnection.disconnect()} cannot). Dropping the socket is
+ * what cancels the generation on the GPU. The JDK client has no per-read timeout, so the ticker
+ * also enforces {@code ollama.read-timeout} as "no upstream byte for that long". Prompt, reply and
+ * reasoning content are never logged.
  */
 @Component
 public class OllamaTurnStreamer {
@@ -63,6 +75,7 @@ public class OllamaTurnStreamer {
   private final Duration maxStreamDuration;
   private final String keepAlive;
   private final Duration cancelPollInterval;
+  private final HttpClient httpClient;
 
   public OllamaTurnStreamer(
       ObjectMapper objectMapper,
@@ -79,6 +92,11 @@ public class OllamaTurnStreamer {
     this.maxStreamDuration = maxStreamDuration;
     this.keepAlive = keepAlive;
     this.cancelPollInterval = cancelPollInterval;
+    this.httpClient =
+        HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(connectTimeout)
+            .build();
   }
 
   /**
@@ -103,8 +121,10 @@ public class OllamaTurnStreamer {
     private final long startedAtNanos = System.nanoTime();
     private final long receivedAtNanos;
 
-    private volatile UpstreamHttp upstream;
-    private volatile boolean connected;
+    private volatile CompletableFuture<HttpResponse<InputStream>> pending;
+    private volatile InputStream responseBody;
+    private volatile boolean silenceTimedOut;
+    private volatile long lastUpstreamNanos = startedAtNanos;
     private volatile boolean cancelled;
     private volatile boolean deadlineExceeded;
     private volatile long lastWriteNanos = startedAtNanos;
@@ -169,8 +189,8 @@ public class OllamaTurnStreamer {
                 "message",
                 "Loading " + target.model() + " on " + target.nodeName() + "…"));
       }
-      UpstreamHttp conn = open();
-      int status = conn.status();
+      HttpResponse<InputStream> response = open();
+      int status = response.statusCode();
       if (status / 100 != 2) {
         logger.warn("Node {} returned HTTP {} for chat", target.nodeId(), status);
         fail(ChatErrorCodes.NODE_ERROR, "Node returned HTTP " + status);
@@ -178,9 +198,10 @@ public class OllamaTurnStreamer {
       }
       try (BufferedReader reader =
           new BufferedReader(
-              new InputStreamReader(conn.body(), StandardCharsets.UTF_8))) {
+              new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
         String line;
         while ((line = reader.readLine()) != null) {
+          lastUpstreamNanos = System.nanoTime();
           if (System.nanoTime() - startedAtNanos > maxStreamDuration.toNanos()) {
             deadlineExceeded = true;
             fail(
@@ -206,7 +227,7 @@ public class OllamaTurnStreamer {
       }
     }
 
-    private UpstreamHttp open() throws IOException {
+    private HttpResponse<InputStream> open() throws IOException {
       Map<String, Object> options = new LinkedHashMap<>();
       options.put("num_ctx", request.numCtx());
       if (request.temperature() != null) {
@@ -236,17 +257,36 @@ public class OllamaTurnStreamer {
       }
 
       byte[] payload = objectMapper.writeValueAsBytes(body);
-      UpstreamHttp conn = new UpstreamHttp();
-      // Published before connecting so the ticker can drop it at any point.
-      upstream = conn;
-      if (cancelled || deadlineExceeded) {
-        conn.close(); // the ticker fired before we got here
+      HttpRequest httpRequest =
+          HttpRequest.newBuilder(URI.create("http://" + target.address() + "/api/chat"))
+              .header("Content-Type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
+              .build();
+      // Published before sending so the ticker can cancel it at any point.
+      CompletableFuture<HttpResponse<InputStream>> future =
+          httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+      pending = future;
+      if (cancelled || deadlineExceeded || silenceTimedOut) {
+        disconnect(); // the ticker fired before we got here
       }
-      conn.post(target.address(), "/api/chat", payload, connectTimeout, readTimeout);
-      if (cancelled || deadlineExceeded) {
-        conn.close();
+      HttpResponse<InputStream> response;
+      try {
+        response = future.get();
+      } catch (ExecutionException ex) {
+        Throwable cause = ex.getCause();
+        throw cause instanceof IOException io ? io : new IOException(cause);
+      } catch (CancellationException ex) {
+        throw new IOException("Request cancelled", ex);
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+        throw new IOException("Interrupted", ex);
       }
-      return conn;
+      responseBody = response.body();
+      lastUpstreamNanos = System.nanoTime();
+      if (cancelled || deadlineExceeded || silenceTimedOut) {
+        disconnect();
+      }
+      return response;
     }
 
     private void onChunk(JsonNode chunk) {
@@ -302,8 +342,9 @@ public class OllamaTurnStreamer {
         fail(
             ChatErrorCodes.TIMEOUT,
             "Generation exceeded the " + maxStreamDuration.toSeconds() + "s limit");
-      } else if (upstream != null && upstream.connected() && ex instanceof SocketTimeoutException) {
-        logger.warn("Node {} timed out: {}", target.nodeId(), ex.getMessage());
+      } else if (silenceTimedOut
+          || (ex instanceof HttpTimeoutException && !(ex instanceof HttpConnectTimeoutException))) {
+        logger.warn("Node {} timed out", target.nodeId());
         fail(
             ChatErrorCodes.TIMEOUT,
             "Node stopped responding for " + readTimeout.toSeconds() + "s");
@@ -384,6 +425,7 @@ public class OllamaTurnStreamer {
     private void tick() {
       long pollNanos = Math.max(1, cancelPollInterval.toNanos());
       long maxNanos = maxStreamDuration.toNanos();
+      long silenceNanos = readTimeout.toNanos();
       try {
         while (finished.getCount() > 0) {
           long now = System.nanoTime();
@@ -394,9 +436,16 @@ public class OllamaTurnStreamer {
             disconnect();
             return;
           }
+          long untilSilence = silenceNanos - (now - lastUpstreamNanos);
+          if (untilSilence <= 0) {
+            silenceTimedOut = true;
+            disconnect();
+            return;
+          }
           long untilPoll = pollNanos - (now - lastWriteNanos);
           if (untilPoll > 0) {
-            if (finished.await(Math.min(untilPoll, untilDeadline), TimeUnit.NANOSECONDS)) {
+            long wait = Math.min(untilPoll, Math.min(untilDeadline, untilSilence));
+            if (finished.await(wait, TimeUnit.NANOSECONDS)) {
               return;
             }
             continue;
@@ -431,9 +480,17 @@ public class OllamaTurnStreamer {
     }
 
     private void disconnect() {
-      UpstreamHttp conn = upstream;
-      if (conn != null) {
-        conn.close();
+      CompletableFuture<HttpResponse<InputStream>> future = pending;
+      if (future != null) {
+        future.cancel(true);
+      }
+      InputStream body = responseBody;
+      if (body != null) {
+        try {
+          body.close();
+        } catch (IOException ignored) {
+          // already gone
+        }
       }
     }
 

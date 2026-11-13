@@ -94,7 +94,7 @@ All need `AI_USER` or `ADMIN` (`AiCatalogController`, gRPC `AiChatService`). New
 
 - Effective node status (`NodeStatusResolver`) is the only status to expose or route on: OFFLINE when the heartbeat is older than `ai.node.stale-after`, BUSY when the API has a generation in flight (`NodeActivityTracker`).
 - `ModelRouter.route(model, nodeId|null, excluded)` resolves a target (Auto order in `AutoOrder`); `OllamaTurnStreamer` runs one generation and returns a `TurnResult` (it never writes `meta`/`done`/`error`).
-- The turn engine talks to Ollama through `UpstreamHttp`, not `HttpURLConnection`: `HttpURLConnection.disconnect()` cannot wake a thread blocked reading a silent body, so cancel would be late.
+- The turn engine talks to Ollama through the JDK `HttpClient` (HTTP/1.1; cancel the pending future before headers, close the body stream after), not `HttpURLConnection`: `HttpURLConnection.disconnect()` cannot wake a thread blocked reading a silent body, so cancel would be late. The JDK client has no read timeout, so the ticker enforces `ollama.read-timeout` as upstream silence.
 - Background work must go through `MdcPropagation` so the `correlationId` follows it.
 
 **Usernames are case-insensitive and stored lowercase.** Input is trimmed and lowercased before lookup, so `ZMat` and `zmat` are the same account. Login, reads, updates and deletes accept any casing; responses return the stored lowercase name.
