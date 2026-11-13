@@ -41,5 +41,6 @@ public record MessageDto(
       Long loadMs,
       Long thinkingMs,
       Double tokensPerSecond,
-      String finishReason) {}
+      String finishReason,
+      Boolean contextOverflow) {}
 }

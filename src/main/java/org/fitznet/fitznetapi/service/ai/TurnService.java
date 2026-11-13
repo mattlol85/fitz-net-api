@@ -8,15 +8,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.fitznet.fitznetapi.dto.ModelTargetDto;
+import org.fitznet.fitznetapi.model.AiAttachment;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
+import org.fitznet.fitznetapi.model.AiNode;
+import org.fitznet.fitznetapi.model.MessageAttachment;
 import org.fitznet.fitznetapi.model.MessageError;
 import org.fitznet.fitznetapi.model.MessageGeneration;
 import org.fitznet.fitznetapi.model.ModelTarget;
 import org.fitznet.fitznetapi.repository.AiConversationRepository;
 import org.fitznet.fitznetapi.repository.AiMessageRepository;
+import org.fitznet.fitznetapi.repository.AiNodeRepository;
 import org.fitznet.fitznetapi.service.ChatEventSink;
 import org.fitznet.fitznetapi.service.ai.TurnResult.Ended;
 import org.slf4j.Logger;
@@ -123,6 +128,8 @@ public class TurnService {
   private final ConversationSettingsResolver settings;
   private final AiPreferencesService preferences;
   private final ObjectProvider<MessageLifecycleHook> hooks;
+  private final AttachmentService attachments;
+  private final AiNodeRepository nodes;
   private final int maxMessageChars;
 
   public TurnService(
@@ -135,6 +142,8 @@ public class TurnService {
       ConversationSettingsResolver settings,
       AiPreferencesService preferences,
       ObjectProvider<MessageLifecycleHook> hooks,
+      AttachmentService attachments,
+      AiNodeRepository nodes,
       @Value("${ai.chat.max-message-chars:32000}") int maxMessageChars) {
     this.conversations = conversations;
     this.messages = messages;
@@ -145,6 +154,8 @@ public class TurnService {
     this.settings = settings;
     this.preferences = preferences;
     this.hooks = hooks;
+    this.attachments = attachments;
+    this.nodes = nodes;
     this.maxMessageChars = maxMessageChars;
   }
 
@@ -158,8 +169,15 @@ public class TurnService {
   public PreparedTurn prepare(String username, TurnCommand command) {
     AiConversation conversation = access.owned(username, command.conversationId());
     AiMessage anchor = null;
+    // Attachments to attach to the user message, and whether an edit replaces the existing ones.
+    List<AiAttachment> newAttachments = List.of();
+    boolean replaceAttachments = false;
     switch (command.kind()) {
-      case SEND -> validateContent(command.content());
+      case SEND -> {
+        newAttachments =
+            attachments.resolveForNewMessage(username, command.attachmentIds());
+        validateContent(command.content(), !newAttachments.isEmpty());
+      }
       case REGENERATE -> {
         anchor = access.message(conversation, command.messageId());
         if (!AiMessage.ROLE_ASSISTANT.equals(anchor.getRole())) {
@@ -171,12 +189,16 @@ public class TurnService {
         if (!AiMessage.ROLE_USER.equals(anchor.getRole())) {
           throw badRequest("Only a user message can be edited");
         }
-        validateContent(command.content());
+        replaceAttachments = command.attachmentIdsPresent();
+        if (replaceAttachments) {
+          newAttachments = attachments.resolveForEdit(username, command.attachmentIds(), anchor);
+        }
+        int resulting =
+            replaceAttachments
+                ? newAttachments.size()
+                : anchor.getAttachments() == null ? 0 : anchor.getAttachments().size();
+        validateContent(command.content(), resulting > 0);
       }
-    }
-    // Part 3 hook: resolve and validate attachment ids here (unknown or foreign id -> 400).
-    if (command.attachmentIds() != null && !command.attachmentIds().isEmpty()) {
-      throw badRequest("Attachments are not supported yet");
     }
     ModelTarget requested = ConversationService.toTarget(command.target());
     ModelTarget effective = requested != null ? requested : conversation.getTarget();
@@ -188,7 +210,9 @@ public class TurnService {
           HttpStatus.CONFLICT, "A generation is already in flight for this conversation");
     }
     try {
-      PreparedTurn turn = apply(username, conversation, command, anchor, requested, effective);
+      PreparedTurn turn =
+          apply(
+              conversation, command, anchor, requested, effective, newAttachments, replaceAttachments);
       if (requested != null) {
         preferences.setLastTarget(username, requested);
       }
@@ -200,13 +224,17 @@ public class TurnService {
   }
 
   private PreparedTurn apply(
-      String username,
       AiConversation conversation,
       TurnCommand command,
       AiMessage anchor,
       ModelTarget requested,
-      ModelTarget effective) {
+      ModelTarget effective,
+      List<AiAttachment> newAttachments,
+      boolean replaceAttachments) {
     Instant now = Instant.now();
+    String content = command.content() == null ? "" : command.content();
+    List<MessageAttachment> refs =
+        new ArrayList<>(newAttachments.stream().map(AttachmentService::ref).toList());
     List<AiMessage> existing = messages.findByConversationIdOrderBySeqAsc(conversation.getId());
     AiMessage user;
     int assistantSeq;
@@ -221,13 +249,15 @@ public class TurnService {
                     conversation.getNextSeq(),
                     conversation.getActiveLeafId(),
                     AiMessage.ROLE_USER,
-                    command.content(),
+                    content,
+                    refs,
                     AiMessage.STATUS_COMPLETE,
                     now));
+        attachments.attach(newAttachments, conversation.getId(), user.getId());
         assistantSeq = conversation.getNextSeq() + 1;
         fromSeq = Integer.MAX_VALUE; // nothing deleted
         if (existing.isEmpty()) {
-          provisionalTitle(conversation, command.content());
+          provisionalTitle(conversation, content);
         }
       }
       case REGENERATE -> {
@@ -243,13 +273,28 @@ public class TurnService {
         fromSeq = anchor.getSeq();
         user = anchor;
         deleteFrom(conversation, existing, fromSeq + 1);
-        user.setContent(command.content());
+        user.setContent(content);
         user.setEditedAt(now);
-        user.setTokenEstimate(TokenEstimator.message(command.content(), 0));
+        if (replaceAttachments) {
+          // Dropped images are deleted; kept ones stay attached; new ones are attached below.
+          Set<String> kept = refs.stream().map(MessageAttachment::id).collect(Collectors.toSet());
+          if (user.getAttachments() != null) {
+            attachments.deleteAll(
+                user.getAttachments().stream()
+                    .map(MessageAttachment::id)
+                    .filter(id -> !kept.contains(id))
+                    .toList());
+          }
+          user.setAttachments(refs);
+          attachments.attach(newAttachments, conversation.getId(), user.getId());
+        }
+        user.setTokenEstimate(
+            TokenEstimator.message(
+                content, user.getAttachments() == null ? 0 : user.getAttachments().size()));
         messages.save(user);
         assistantSeq = fromSeq + 1;
         if (existing.get(0).getId().equals(user.getId())) {
-          provisionalTitle(conversation, command.content());
+          provisionalTitle(conversation, content);
         }
         // A deletion that reaches into the summarised range invalidates the summary; an edit
         // rewrites the user message itself, so it counts from that message.
@@ -269,6 +314,7 @@ public class TurnService {
                 user.getId(),
                 AiMessage.ROLE_ASSISTANT,
                 "",
+                List.of(),
                 AiMessage.STATUS_STREAMING,
                 now));
     conversation.setNextSeq(assistantSeq + 1);
@@ -314,6 +360,7 @@ public class TurnService {
       String parentId,
       String role,
       String content,
+      List<MessageAttachment> refs,
       String status,
       Instant now) {
     return AiMessage.builder()
@@ -324,7 +371,8 @@ public class TurnService {
         .role(role)
         .content(content)
         .status(status)
-        .tokenEstimate(TokenEstimator.message(content, 0))
+        .attachments(new ArrayList<>(refs))
+        .tokenEstimate(TokenEstimator.message(content, refs.size()))
         .schemaVersion(AiMessage.SCHEMA_VERSION)
         .createdAt(now)
         .build();
@@ -344,11 +392,12 @@ public class TurnService {
             : firstLine.substring(0, PROVISIONAL_TITLE_CHARS));
   }
 
-  private void validateContent(String content) {
-    if (content == null || content.isBlank()) {
+  /** Content may be empty only when the message carries at least one image. */
+  private void validateContent(String content, boolean hasAttachments) {
+    if ((content == null || content.isBlank()) && !hasAttachments) {
       throw badRequest("content must not be empty");
     }
-    if (content.length() > maxMessageChars) {
+    if (content != null && content.length() > maxMessageChars) {
       throw badRequest("content is too long (max " + maxMessageChars + " characters)");
     }
   }
@@ -401,31 +450,40 @@ public class TurnService {
     AiConversation conversation = turn.conversation;
     ModelTarget target = turn.target;
     Set<String> tried = new HashSet<>();
+    // Read at generation time: a preset edited or deleted since the last turn applies right now.
+    EffectiveSettings effective = settings.resolve(conversation);
 
     RouteOutcome first = router.route(target.model(), target.nodeId(), Set.of());
     if (first instanceof RouteOutcome.Failed failed) {
-      failWith(turn, sink, finish, null, failed.code(), failed.message(), failed.retryable(), failed.alternatives());
+      failWith(turn, sink, finish, failed.code(), failed.message(), failed.retryable(), failed.alternatives());
       return;
     }
     RoutedTarget routed = ((RouteOutcome.Routed) first).target();
     RoutedTarget from = null;
 
     for (int attempt = 0; ; attempt++) {
-      routed = settings.apply(routed, conversation);
+      routed = effective.apply(routed);
 
-      // Part 3 hook: if the new user message has images and !routed.hasCapability("vision"),
-      // finish with MODEL_NOT_VISION here.
+      boolean newMessageHasImages =
+          turn.userMessage.getAttachments() != null && !turn.userMessage.getAttachments().isEmpty();
+      if (newMessageHasImages && !routed.hasCapability("vision")) {
+        failWith(
+            turn, sink, finish, ChatErrorCodes.MODEL_NOT_VISION,
+            routed.model() + " cannot see images. Pick a vision model or remove the image.",
+            false, List.of());
+        return;
+      }
       List<AiMessage> stored = messages.findByConversationIdOrderBySeqAsc(conversation.getId());
       PromptPlan plan =
           ContextBuilder.build(
               stored,
               conversation.getSummary(),
-              settings.systemPrompt(conversation),
+              effective.systemPrompt(),
               routed.contextLength(),
               routed.hasCapability("vision"));
       if (plan.tooSmall()) {
         failWith(
-            turn, sink, finish, routed, ChatErrorCodes.CONTEXT_TOO_SMALL,
+            turn, sink, finish, ChatErrorCodes.CONTEXT_TOO_SMALL,
             "Your message is too long for this model's context window.", false, List.of());
         return;
       }
@@ -438,9 +496,9 @@ public class TurnService {
         status.put("message", from.nodeName() + " did not answer, trying " + routed.nodeName() + "…");
         write(sink, "status", status);
       }
-      write(sink, "meta", metaEvent(turn, routed, plan, conversation));
+      write(sink, "meta", metaEvent(turn, routed, plan, effective));
 
-      TurnResult result = streamer.stream(turnRequest(turn, conversation, routed, plan), sink);
+      TurnResult result = streamer.stream(turnRequest(turn, effective, routed, plan), sink);
 
       if (result.ended() == Ended.ERROR
           && routed.auto()
@@ -457,7 +515,7 @@ public class TurnService {
           continue;
         }
       }
-      finishFromResult(turn, sink, finish, routed, plan, result, tried);
+      finishFromResult(turn, sink, finish, effective, routed, plan, result, tried);
       return;
     }
   }
@@ -466,6 +524,7 @@ public class TurnService {
       PreparedTurn turn,
       ChatEventSink sink,
       Finish finish,
+      EffectiveSettings effective,
       RoutedTarget routed,
       PromptPlan plan,
       TurnResult result,
@@ -473,14 +532,18 @@ public class TurnService {
     finish.content = result.content();
     finish.thinking = result.thinking();
     TurnResult.TurnStats stats = result.stats();
+    int promptTokens =
+        result.promptTokens() != null ? result.promptTokens() : plan.promptTokensEstimate();
+    Boolean contextOverflow =
+        result.ended() == Ended.COMPLETED ? promptTokens >= routed.contextLength() : null;
     finish.generation =
         new MessageGeneration(
             routed.nodeId(),
             routed.nodeName(),
             routed.model(),
             routed.auto(),
-            settings.presetId(turn.conversation),
-            settings.presetName(turn.conversation),
+            effective.presetId(),
+            effective.presetName(),
             routed.contextLength(),
             result.promptTokens(),
             result.completionTokens(),
@@ -489,13 +552,12 @@ public class TurnService {
             stats.loadMs(),
             stats.thinkingMs(),
             stats.tokensPerSecond(),
-            result.finishReason());
+            result.finishReason(),
+            contextOverflow);
     switch (result.ended()) {
       case COMPLETED -> {
         finish.status = AiMessage.STATUS_COMPLETE;
         finish.error = null;
-        int promptTokens =
-            result.promptTokens() != null ? result.promptTokens() : plan.promptTokensEstimate();
         int completionTokens =
             result.completionTokens() != null
                 ? result.completionTokens()
@@ -513,7 +575,7 @@ public class TurnService {
         done.put("completionTokens", completionTokens);
         done.put("contextLength", routed.contextLength());
         done.put("finishReason", result.finishReason());
-        done.put("contextOverflow", promptTokens >= routed.contextLength());
+        done.put("contextOverflow", contextOverflow);
         done.put("stats", statsEvent);
         quietly(sink, "done", done);
       }
@@ -539,44 +601,70 @@ public class TurnService {
     }
   }
 
-  /** A failure before any generation: routing, context size. Stores the error, writes it. */
+  /**
+   * A failure before any generation (routing, vision check, context size). Stores the error with a
+   * minimal generation block (the requested model and node, so the client can offer alternatives
+   * after a reload) and writes the error event.
+   */
   private void failWith(
       PreparedTurn turn,
       ChatEventSink sink,
       Finish finish,
-      RoutedTarget routed,
       String code,
       String message,
       boolean retryable,
       List<Alternative> alternatives) {
     finish.status = AiMessage.STATUS_ERROR;
     finish.error = new MessageError(code, message);
-    finish.generation = null;
+    finish.generation = minimalGeneration(turn.target);
     quietly(sink, "error", errorEvent(turn, code, message, retryable, alternatives));
   }
 
+  /** The requested model and node (null node = Auto) and {@code finishReason: error}; nothing else. */
+  private MessageGeneration minimalGeneration(ModelTarget requested) {
+    String nodeName =
+        requested.nodeId() == null
+            ? null
+            : nodes.findById(requested.nodeId()).map(AiNode::getName).orElse(null);
+    return new MessageGeneration(
+        requested.nodeId(),
+        nodeName,
+        requested.model(),
+        requested.nodeId() == null,
+        null, null, null, null, null, null, null, null, null, null,
+        "error",
+        null);
+  }
+
   private TurnRequest turnRequest(
-      PreparedTurn turn, AiConversation conversation, RoutedTarget routed, PromptPlan plan) {
+      PreparedTurn turn, EffectiveSettings effective, RoutedTarget routed, PromptPlan plan) {
+    boolean vision = routed.hasCapability("vision");
     List<TurnMessage> prompt = new ArrayList<>();
     if (plan.summaryActive()) {
       prompt.add(TurnMessage.of("system", ContextBuilder.SUMMARY_PREFIX + plan.summaryUsed().text()));
     }
     for (AiMessage message : plan.messages()) {
-      // Part 3 hook: attach base64 images here for messages that carry image attachments.
-      prompt.add(TurnMessage.of(message.getRole(), message.getContent()));
+      // The new user message always carries its images (a model without vision was rejected
+      // before this point); older messages only for a vision model, else they are omitted.
+      boolean sendImages = vision || message.getId().equals(turn.userMessageId());
+      prompt.add(
+          new TurnMessage(
+              message.getRole(),
+              message.getContent(),
+              sendImages ? attachments.base64Images(message.getAttachments()) : List.of()));
     }
     return new TurnRequest(
         routed,
         prompt,
-        settings.systemPrompt(conversation),
+        effective.systemPrompt(),
         routed.contextLength(),
-        settings.temperature(conversation),
+        effective.temperature(),
         routed.hasCapability("thinking"),
         turn.receivedAtNanos);
   }
 
   private Map<String, Object> metaEvent(
-      PreparedTurn turn, RoutedTarget routed, PromptPlan plan, AiConversation conversation) {
+      PreparedTurn turn, RoutedTarget routed, PromptPlan plan, EffectiveSettings effective) {
     Map<String, Object> context = new LinkedHashMap<>();
     context.put("promptTokensEstimate", plan.promptTokensEstimate());
     context.put("trimmedCount", plan.trimmedCount());
@@ -590,7 +678,7 @@ public class TurnService {
     meta.put("nodeName", routed.nodeName());
     meta.put("model", routed.model());
     meta.put("auto", routed.auto());
-    meta.put("presetId", settings.presetId(conversation));
+    meta.put("presetId", effective.presetId());
     meta.put("contextLength", routed.contextLength());
     meta.put("context", context);
     return meta;

@@ -131,7 +131,8 @@ public class ConversationMapper {
                 g.loadMs(),
                 g.thinkingMs(),
                 g.tokensPerSecond(),
-                g.finishReason()),
+                g.finishReason(),
+                g.contextOverflow()),
         m.getCreatedAt(),
         m.getEditedAt());
   }

@@ -126,7 +126,7 @@ public class ContextService {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Nothing is trimmed, so there is nothing to summarise");
     }
 
-    int window = settings.apply(routed, conversation).contextLength();
+    int window = settings.resolve(conversation).apply(routed).contextLength();
     int available =
         window - SUMMARY_NUM_PREDICT - TokenEstimator.tokens(SUMMARY_INSTRUCTIONS) - 16;
     Transcript transcript = transcript(conversation.getSummary(), trimmed, Math.max(available, 64));
@@ -179,13 +179,14 @@ public class ContextService {
 
   /** The prompt plan for the conversation on {@code routed}. */
   PromptPlan plan(AiConversation conversation, List<AiMessage> stored, RoutedTarget routed) {
-    RoutedTarget effective = settings.apply(routed, conversation);
+    EffectiveSettings effective = settings.resolve(conversation);
+    RoutedTarget target = effective.apply(routed);
     return ContextBuilder.build(
         stored,
         conversation.getSummary(),
-        settings.systemPrompt(conversation),
-        effective.contextLength(),
-        effective.hasCapability("vision"));
+        effective.systemPrompt(),
+        target.contextLength(),
+        target.hasCapability("vision"));
   }
 
   ContextUsageDto usage(AiConversation conversation, List<AiMessage> stored, RoutedTarget routed) {
@@ -193,7 +194,7 @@ public class ContextService {
     return new ContextUsageDto(
         routed.model(),
         routed.nodeId(),
-        settings.apply(routed, conversation).contextLength(),
+        settings.resolve(conversation).apply(routed).contextLength(),
         plan.promptTokensEstimate(),
         plan.totalTokens(),
         plan.fits(),

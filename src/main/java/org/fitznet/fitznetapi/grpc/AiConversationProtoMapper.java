@@ -170,6 +170,7 @@ final class AiConversationProtoMapper {
     ifPresent(g.thinkingMs(), b::setThinkingMs);
     ifPresent(g.tokensPerSecond(), b::setTokensPerSecond);
     ifPresent(g.finishReason(), b::setFinishReason);
+    ifPresent(g.contextOverflow(), b::setContextOverflow);
     return b.build();
   }
 

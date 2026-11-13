@@ -19,6 +19,7 @@ import org.fitznet.fitznetapi.dto.responses.ConversationSummaryDto;
 import org.fitznet.fitznetapi.dto.responses.DeleteResponseDto;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
+import org.fitznet.fitznetapi.model.AiPreset;
 import org.fitznet.fitznetapi.model.ModelTarget;
 import org.fitznet.fitznetapi.repository.AiConversationRepository;
 import org.fitznet.fitznetapi.repository.AiMessageRepository;
@@ -62,6 +63,7 @@ public class ConversationService {
   private final ConversationSettingsResolver settings;
   private final GenerationRegistry generations;
   private final ObjectProvider<MessageLifecycleHook> hooks;
+  private final PresetService presets;
 
   public ConversationService(
       AiConversationRepository conversations,
@@ -74,7 +76,8 @@ public class ConversationService {
       OllamaChatCompleter completer,
       ConversationSettingsResolver settings,
       GenerationRegistry generations,
-      ObjectProvider<MessageLifecycleHook> hooks) {
+      ObjectProvider<MessageLifecycleHook> hooks,
+      PresetService presets) {
     this.conversations = conversations;
     this.messages = messages;
     this.access = access;
@@ -86,18 +89,25 @@ public class ConversationService {
     this.settings = settings;
     this.generations = generations;
     this.hooks = hooks;
+    this.presets = presets;
   }
 
   public ConversationDto create(String username, CreateConversationRequestDto request) {
     Instant now = Instant.now();
     boolean userTitle = request.getTitle() != null && !request.getTitle().isBlank();
     ConversationSettingsDto requested = request.getSettings();
+    ModelTarget target = toTarget(request.getTarget());
+    AiPreset preset = visiblePreset(username, requested == null ? null : requested.getPresetId());
+    if (target == null && preset != null && preset.getModel() != null) {
+      // A preset that pins a model sets the target when the request names none.
+      target = new ModelTarget(preset.getModel(), preset.getNodeId());
+    }
     AiConversation conversation =
         AiConversation.builder()
             .ownerUsername(username)
             .title(userTitle ? request.getTitle().trim() : AiConversation.DEFAULT_TITLE)
             .titleSource(userTitle ? AiConversation.TITLE_USER : AiConversation.TITLE_DEFAULT)
-            .target(toTarget(request.getTarget()))
+            .target(target)
             .presetId(requested == null ? null : blankToNull(requested.getPresetId()))
             .systemPrompt(requested == null ? null : blankToNull(requested.getSystemPrompt()))
             .nextSeq(1)
@@ -106,7 +116,6 @@ public class ConversationService {
             .createdAt(now)
             .updatedAt(now)
             .build();
-    // Part 3 hook: a presetId without a target copies the preset's pinned model into the target.
     AiConversation saved = conversations.save(conversation);
     if (saved.getTarget() != null) {
       preferences.setLastTarget(username, saved.getTarget());
@@ -167,10 +176,15 @@ public class ConversationService {
     }
     if (request.isSettingsPresent()) {
       ConversationSettingsDto s = request.getSettings();
-      conversation.setPresetId(s == null ? null : blankToNull(s.getPresetId()));
+      AiPreset preset = visiblePreset(username, s == null ? null : s.getPresetId());
+      conversation.setPresetId(preset == null ? null : preset.getId());
       conversation.setSystemPrompt(s == null ? null : blankToNull(s.getSystemPrompt()));
       touched = true;
-      // Part 3 hook: presetId without a target in the same request copies the preset's pinned model.
+      if (!request.isTargetPresent() && preset != null && preset.getModel() != null) {
+        // A preset that pins a model sets the target when the request names none.
+        newTarget = new ModelTarget(preset.getModel(), preset.getNodeId());
+        conversation.setTarget(newTarget);
+      }
     }
     if (touched) {
       conversation.setUpdatedAt(now);
@@ -246,7 +260,7 @@ public class ConversationService {
     if (!(outcome instanceof RouteOutcome.Routed routed)) {
       return Optional.empty();
     }
-    RoutedTarget target = settings.apply(routed.target(), conversation);
+    RoutedTarget target = settings.resolve(conversation).apply(routed.target());
     String transcript =
         "User: " + clip(firstUser.getContent(), 600) + "\nAssistant: " + clip(firstReply.getContent(), 600);
     String reply =
@@ -262,6 +276,16 @@ public class ConversationService {
   }
 
   // ---- helpers ---------------------------------------------------------------------------
+
+  /** The preset when {@code presetId} is set: unknown or not visible to the user is a 400. */
+  private AiPreset visiblePreset(String username, String presetId) {
+    if (presetId == null || presetId.isBlank()) {
+      return null;
+    }
+    return presets
+        .findVisible(username, presetId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown preset"));
+  }
 
   /** First line, quotes and a "Title:" prefix stripped, at most 80 characters; null if empty. */
   static String cleanTitle(String raw) {

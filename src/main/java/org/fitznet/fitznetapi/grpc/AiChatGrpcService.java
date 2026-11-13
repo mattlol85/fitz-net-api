@@ -11,28 +11,38 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.fitznet.fitznetapi.controller.AiCatalogController;
+import org.fitznet.fitznetapi.controller.AiAttachmentController;
 import org.fitznet.fitznetapi.controller.AiConversationController;
+import org.fitznet.fitznetapi.controller.AiPresetController;
 import org.fitznet.fitznetapi.dto.requests.EditMessageRequestDto;
 import org.fitznet.fitznetapi.dto.requests.RegenerateMessageRequestDto;
 import org.fitznet.fitznetapi.dto.requests.SendMessageRequestDto;
 import org.fitznet.fitznetapi.dto.requests.WarmUpRequestDto;
 import org.fitznet.fitznetapi.grpc.proto.AiChatServiceGrpc;
+import org.fitznet.fitznetapi.grpc.proto.Attachment;
+import org.fitznet.fitznetapi.grpc.proto.AttachmentContent;
 import org.fitznet.fitznetapi.grpc.proto.ChatPreferences;
 import org.fitznet.fitznetapi.grpc.proto.ContextUsage;
 import org.fitznet.fitznetapi.grpc.proto.Conversation;
 import org.fitznet.fitznetapi.grpc.proto.ConversationDetail;
 import org.fitznet.fitznetapi.grpc.proto.CreateConversationRequest;
+import org.fitznet.fitznetapi.grpc.proto.CreatePresetRequest;
 import org.fitznet.fitznetapi.grpc.proto.DeleteConversationRequest;
+import org.fitznet.fitznetapi.grpc.proto.DeletePresetRequest;
 import org.fitznet.fitznetapi.grpc.proto.DeleteResponse;
 import org.fitznet.fitznetapi.grpc.proto.EditMessageRequest;
 import org.fitznet.fitznetapi.grpc.proto.GenerateTitleRequest;
 import org.fitznet.fitznetapi.grpc.proto.GetContextUsageRequest;
+import org.fitznet.fitznetapi.grpc.proto.GetAttachmentRequest;
 import org.fitznet.fitznetapi.grpc.proto.GetConversationRequest;
 import org.fitznet.fitznetapi.grpc.proto.GetPreferencesRequest;
 import org.fitznet.fitznetapi.grpc.proto.ListConversationsRequest;
 import org.fitznet.fitznetapi.grpc.proto.ListConversationsResponse;
 import org.fitznet.fitznetapi.grpc.proto.ListModelsRequest;
+import org.fitznet.fitznetapi.grpc.proto.ListPresetsRequest;
+import org.fitznet.fitznetapi.grpc.proto.ListPresetsResponse;
 import org.fitznet.fitznetapi.grpc.proto.ModelCatalog;
+import org.fitznet.fitznetapi.grpc.proto.Preset;
 import org.fitznet.fitznetapi.grpc.proto.RegenerateMessageRequest;
 import org.fitznet.fitznetapi.grpc.proto.SendMessageRequest;
 import org.fitznet.fitznetapi.grpc.proto.SummarizeConversationRequest;
@@ -47,7 +57,9 @@ import org.fitznet.fitznetapi.grpc.proto.TurnMeta;
 import org.fitznet.fitznetapi.grpc.proto.TurnStats;
 import org.fitznet.fitznetapi.grpc.proto.TurnStatus;
 import org.fitznet.fitznetapi.grpc.proto.UpdateConversationRequest;
+import org.fitznet.fitznetapi.grpc.proto.UpdatePresetRequest;
 import org.fitznet.fitznetapi.grpc.proto.UpdatePreferencesRequest;
+import org.fitznet.fitznetapi.grpc.proto.UploadAttachmentRequest;
 import org.fitznet.fitznetapi.grpc.proto.WarmUpRequest;
 import org.fitznet.fitznetapi.grpc.proto.WarmUpResponse;
 import org.fitznet.fitznetapi.service.ChatEventSink;
@@ -65,14 +77,20 @@ public class AiChatGrpcService extends AiChatServiceGrpc.AiChatServiceImplBase {
 
   private final AiCatalogController catalogController;
   private final AiConversationController conversationController;
+  private final AiPresetController presetController;
+  private final AiAttachmentController attachmentController;
   private final GrpcRequestValidator validator;
 
   public AiChatGrpcService(
       AiCatalogController catalogController,
       AiConversationController conversationController,
+      AiPresetController presetController,
+      AiAttachmentController attachmentController,
       GrpcRequestValidator validator) {
     this.catalogController = catalogController;
     this.conversationController = conversationController;
+    this.presetController = presetController;
+    this.attachmentController = attachmentController;
     this.validator = validator;
   }
 
@@ -193,6 +211,62 @@ public class AiChatGrpcService extends AiChatServiceGrpc.AiChatServiceImplBase {
         AiConversationProtoMapper.toProto(
             conversationController.summarizeConversation(
                 validator.required("conversation_id", request.getConversationId()))));
+  }
+
+  // ---- attachments -------------------------------------------------------------------------
+
+  @Override
+  public void uploadAttachment(
+      UploadAttachmentRequest request, StreamObserver<Attachment> observer) {
+    reply(
+        observer,
+        AiPresetProtoMapper.toProto(
+            attachmentController.uploadAttachment(
+                request.getName(), request.getMimeType(), request.getData().toByteArray())));
+  }
+
+  @Override
+  public void getAttachment(
+      GetAttachmentRequest request, StreamObserver<AttachmentContent> observer) {
+    reply(
+        observer,
+        AiPresetProtoMapper.toProto(
+            attachmentController.readAttachment(
+                validator.required("attachment_id", request.getAttachmentId()))));
+  }
+
+  // ---- presets -----------------------------------------------------------------------------
+
+  @Override
+  public void listPresets(ListPresetsRequest request, StreamObserver<ListPresetsResponse> observer) {
+    reply(observer, AiPresetProtoMapper.toProto(presetController.listPresets()));
+  }
+
+  @Override
+  public void createPreset(CreatePresetRequest request, StreamObserver<Preset> observer) {
+    reply(
+        observer,
+        AiPresetProtoMapper.toProto(
+            presetController.createPreset(validator.valid(AiPresetProtoMapper.fromProto(request)))));
+  }
+
+  @Override
+  public void updatePreset(UpdatePresetRequest request, StreamObserver<Preset> observer) {
+    String id = validator.required("preset_id", request.getPresetId());
+    reply(
+        observer,
+        AiPresetProtoMapper.toProto(
+            presetController.updatePreset(
+                id, validator.valid(AiPresetProtoMapper.fromProto(request)))));
+  }
+
+  @Override
+  public void deletePreset(DeletePresetRequest request, StreamObserver<DeleteResponse> observer) {
+    reply(
+        observer,
+        AiConversationProtoMapper.toProto(
+            presetController.deletePreset(
+                validator.required("preset_id", request.getPresetId()))));
   }
 
   // ---- turns (server streams) --------------------------------------------------------------

@@ -17,10 +17,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.fitznet.fitznetapi.config.EmbeddedMongoTestConfiguration;
 import org.fitznet.fitznetapi.model.AiConversation;
+import org.fitznet.fitznetapi.model.AiPreset;
 import org.fitznet.fitznetapi.model.ModelTarget;
 import org.fitznet.fitznetapi.repository.AiConversationRepository;
 import org.fitznet.fitznetapi.repository.AiMessageRepository;
 import org.fitznet.fitznetapi.repository.AiNodeRepository;
+import org.fitznet.fitznetapi.repository.AiPresetRepository;
 import org.fitznet.fitznetapi.repository.AiUserPrefsRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.util.JwtUtil;
@@ -49,6 +51,7 @@ class AiConversationIntegrationTest {
   @Autowired private AiConversationRepository conversations;
   @Autowired private AiMessageRepository messages;
   @Autowired private AiUserPrefsRepository prefs;
+  @Autowired private AiPresetRepository presets;
 
   private String alice;
   private String bob;
@@ -60,6 +63,7 @@ class AiConversationIntegrationTest {
     conversations.deleteAll();
     messages.deleteAll();
     prefs.deleteAll();
+    presets.deleteAll();
     aiNodeRepository.deleteAll();
     alice = AiConversationTestSupport.saveUser(userRepository, jwtUtil, "alice", "USER", "AI_USER");
     bob = AiConversationTestSupport.saveUser(userRepository, jwtUtil, "bob", "USER", "AI_USER");
@@ -68,6 +72,7 @@ class AiConversationIntegrationTest {
 
   @AfterEach
   void tearDown() {
+    presets.deleteAll();
     conversations.deleteAll();
     messages.deleteAll();
     prefs.deleteAll();
@@ -80,6 +85,20 @@ class AiConversationIntegrationTest {
       request = request.header("Authorization", "Bearer " + token);
     }
     return mockMvc.perform(body == null ? request : request.content(body));
+  }
+
+  /** A private preset of alice, so a presetId in a request is valid. */
+  private String preset() {
+    return presets
+        .save(
+            AiPreset.builder()
+                .ownerUsername("alice")
+                .name("p")
+                .visibility(AiPreset.PRIVATE)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build())
+        .getId();
   }
 
   private String createConversation(String token, String body) throws Exception {
@@ -346,11 +365,12 @@ class AiConversationIntegrationTest {
 
   @Test
   void shouldLeaveAbsentFieldsAloneAndNotMoveUpdatedAtOnPin() throws Exception {
+    String p1 = preset();
     String id =
         createConversation(
             alice,
             "{\"title\":\"Keep\",\"target\":{\"model\":\"" + LLAMA + "\",\"nodeId\":\"n1\"},"
-                + "\"settings\":{\"presetId\":\"p1\",\"systemPrompt\":\"Be terse\"}}");
+                + "\"settings\":{\"presetId\":\"" + p1 + "\",\"systemPrompt\":\"Be terse\"}}");
     Instant before = conversations.findById(id).orElseThrow().getUpdatedAt();
     Thread.sleep(20);
 
@@ -360,7 +380,7 @@ class AiConversationIntegrationTest {
         .andExpect(jsonPath("$.title").value("Keep"))
         .andExpect(jsonPath("$.target.nodeId").value("n1"))
         .andExpect(jsonPath("$.settings.systemPrompt").value("Be terse"))
-        .andExpect(jsonPath("$.settings.presetId").value("p1"));
+        .andExpect(jsonPath("$.settings.presetId").value(p1));
 
     assertEquals(before, conversations.findById(id).orElseThrow().getUpdatedAt());
   }
@@ -388,7 +408,7 @@ class AiConversationIntegrationTest {
         createConversation(
             alice,
             "{\"target\":{\"model\":\"" + LLAMA + "\",\"nodeId\":\"n1\"},"
-                + "\"settings\":{\"presetId\":\"p1\",\"systemPrompt\":\"Be terse\"}}");
+                + "\"settings\":{\"presetId\":\"" + preset() + "\",\"systemPrompt\":\"Be terse\"}}");
 
     call(patch("/ai/conversations/" + id), alice, "{\"target\":{\"model\":\"other:1b\"}}")
         .andExpect(jsonPath("$.target.model").value("other:1b"))

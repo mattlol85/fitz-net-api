@@ -30,6 +30,7 @@ final class AiConversationTestSupport {
   static final String LLAMA = "llama3.1:8b";
   static final String QWEN = "qwen3:14b";
   static final String TINY = "tiny:1b";
+  static final String VISION = "vision:7b";
 
   static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -68,10 +69,12 @@ final class AiConversationTestSupport {
         .tags(
             FakeOllama.tag(LLAMA, "sha-l", 4_920_753_328L, "llama", "8.0B", "Q4_K_M"),
             FakeOllama.tag(QWEN, "sha-q", 9_000_000_000L, "qwen3", "14B", "Q4_K_M"),
-            FakeOllama.tag(TINY, "sha-t", 600_000_000L, "tiny", "1B", "Q4_0"))
+            FakeOllama.tag(TINY, "sha-t", 600_000_000L, "tiny", "1B", "Q4_0"),
+            FakeOllama.tag(VISION, "sha-v", 5_000_000_000L, "llava", "7B", "Q4_0"))
         .show(LLAMA, 131_072, "completion")
         .show(QWEN, 40_960, "completion", "thinking")
-        .show(TINY, 1_024, "completion");
+        .show(TINY, 1_024, "completion")
+        .show(VISION, 32_768, "completion", "vision");
   }
 
   static AiNode node(String id, String name, String address) {
@@ -80,11 +83,38 @@ final class AiConversationTestSupport {
         .name(name)
         .status(NodeStatus.ONLINE)
         .os("Windows 11")
-        .models(List.of(LLAMA, QWEN, TINY))
+        .models(List.of(LLAMA, QWEN, TINY, VISION))
         .vramGb(16.0)
         .address(address)
         .lastHeartbeatAt(Instant.now())
         .build();
+  }
+
+  /** {@code size} bytes that start with the PNG signature. */
+  static byte[] png(int size) {
+    return withHeader(size, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A);
+  }
+
+  /** {@code size} bytes that start with a JPEG marker. */
+  static byte[] jpeg(int size) {
+    return withHeader(size, 0xFF, 0xD8, 0xFF, 0xE0);
+  }
+
+  /** {@code size} bytes that look like a WebP container (RIFF....WEBP). */
+  static byte[] webp(int size) {
+    byte[] data = withHeader(size, 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P');
+    return data;
+  }
+
+  private static byte[] withHeader(int size, int... header) {
+    byte[] data = new byte[Math.max(size, header.length)];
+    for (int i = 0; i < header.length; i++) {
+      data[i] = (byte) header[i];
+    }
+    for (int i = header.length; i < data.length; i++) {
+      data[i] = (byte) (i % 251);
+    }
+    return data;
   }
 
   static String uniqueNodeId() {

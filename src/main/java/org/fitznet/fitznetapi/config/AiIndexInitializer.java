@@ -1,8 +1,11 @@
 package org.fitznet.fitznetapi.config;
 
 import lombok.extern.slf4j.Slf4j;
+import java.util.concurrent.TimeUnit;
+import org.fitznet.fitznetapi.model.AiAttachment;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
+import org.fitznet.fitznetapi.model.AiPreset;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -14,7 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * Creates the Matt-GPT indexes (contract section 12). Auto index creation is off in this API, so
  * they are ensured here at startup, like {@link UsernameIndexInitializer}. Failures are logged and
- * never stop startup. Later parts of the feature (attachments, presets) add their indexes here.
+ * never stop startup. The attachment TTL index removes an upload that was never attached to a message.
  */
 @Slf4j
 @Component
@@ -56,6 +59,22 @@ public class AiIndexInitializer implements ApplicationRunner {
     mongoTemplate
         .indexOps(AiMessage.class)
         .createIndex(new Index().on("ownerUsername", Sort.Direction.ASC).named("owner"));
-    log.info("Ensured Matt-GPT conversation and message indexes");
+    mongoTemplate
+        .indexOps(AiAttachment.class)
+        .createIndex(
+            new Index()
+                .on("expiresAt", Sort.Direction.ASC)
+                .expire(0, TimeUnit.SECONDS)
+                .named("expires_at_ttl"));
+    mongoTemplate
+        .indexOps(AiAttachment.class)
+        .createIndex(new Index().on("conversationId", Sort.Direction.ASC).named("conversation"));
+    mongoTemplate
+        .indexOps(AiPreset.class)
+        .createIndex(new Index().on("ownerUsername", Sort.Direction.ASC).named("owner"));
+    mongoTemplate
+        .indexOps(AiPreset.class)
+        .createIndex(new Index().on("visibility", Sort.Direction.ASC).named("visibility"));
+    log.info("Ensured Matt-GPT conversation, message, attachment and preset indexes");
   }
 }

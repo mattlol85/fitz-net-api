@@ -6,7 +6,7 @@ syntax = "proto3";
 // Messages mirror the JSON field for field in snake_case: nullable JSON scalars are `optional`,
 // message-typed fields carry their own presence, lists are `repeated`, instants are Timestamp, and
 // enumerated strings (state, status, source, capabilities) stay strings so new values need no proto
-// change. Never renumber fields; later RPCs of this service (attachments, presets) are added below.
+// change. Never renumber fields.
 package fitznet.api.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -48,6 +48,20 @@ service AiChatService {
   rpc RegenerateMessage(RegenerateMessageRequest) returns (stream TurnEvent);
   // POST /ai/conversations/{id}/messages/{messageId}/edit
   rpc EditMessage(EditMessageRequest) returns (stream TurnEvent);
+
+  // POST /ai/attachments (the REST body carries base64; here the raw image bytes)
+  rpc UploadAttachment(UploadAttachmentRequest) returns (Attachment);
+  // GET /ai/attachments/{id}
+  rpc GetAttachment(GetAttachmentRequest) returns (AttachmentContent);
+
+  // GET /ai/presets
+  rpc ListPresets(ListPresetsRequest) returns (ListPresetsResponse);
+  // POST /ai/presets
+  rpc CreatePreset(CreatePresetRequest) returns (Preset);
+  // PUT /ai/presets/{id}
+  rpc UpdatePreset(UpdatePresetRequest) returns (Preset);
+  // DELETE /ai/presets/{id}
+  rpc DeletePreset(DeletePresetRequest) returns (DeleteResponse);
 }
 
 // A model on a specific node, or (node_id unset) wherever Auto routes.
@@ -265,6 +279,8 @@ message MessageGeneration {
   optional double tokens_per_second = 14;
   // "stop", "length", "cancelled" or "error".
   string finish_reason = 15;
+  // The done event's context_overflow; unset unless the turn completed.
+  optional bool context_overflow = 16;
 }
 
 message ConversationMessage {
@@ -456,4 +472,95 @@ message TurnError {
   bool retryable = 5;
   // Present (possibly empty) for NODE_OFFLINE, MODEL_NOT_ON_NODE, NO_NODE_AVAILABLE, NODE_UNREACHABLE.
   repeated TurnAlternative alternatives = 6;
+}
+
+// ---- attachments (section 10) ---------------------------------------------------------------
+
+message UploadAttachmentRequest {
+  string name = 1;
+  // "image/png", "image/jpeg" or "image/webp"; the bytes must start with that format's magic number.
+  string mime_type = 2;
+  // At most ai.chat.max-attachment-bytes (3 MB by default).
+  bytes data = 3;
+}
+
+message Attachment {
+  string id = 1;
+  string kind = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string name = 5;
+}
+
+message GetAttachmentRequest {
+  string attachment_id = 1;
+}
+
+message AttachmentContent {
+  string mime_type = 1;
+  bytes data = 2;
+}
+
+// ---- presets (section 9) --------------------------------------------------------------------
+
+message Preset {
+  string id = 1;
+  // 1 to 60 characters.
+  string name = 2;
+  optional string description = 3;
+  // Unset: "whatever model is selected".
+  optional string model = 4;
+  // Unset: Auto. Only meaningful with a model.
+  optional string node_id = 5;
+  optional string system_prompt = 6;
+  // 0 to 2; unset: the model default.
+  optional double temperature = 7;
+  // 512 to 131072; unset: the model default. Capped at run time.
+  optional int32 num_ctx = 8;
+  // "private" or "shared".
+  string visibility = 9;
+  // Shared only: unset means everyone with AI access.
+  optional string required_permission = 10;
+  string owner_username = 11;
+  // Computed for the caller.
+  bool editable = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+message ListPresetsRequest {}
+
+message ListPresetsResponse {
+  repeated Preset items = 1;
+}
+
+message CreatePresetRequest {
+  string name = 1;
+  optional string description = 2;
+  optional string model = 3;
+  optional string node_id = 4;
+  optional string system_prompt = 5;
+  optional double temperature = 6;
+  optional int32 num_ctx = 7;
+  // Defaults to "private". "shared" needs ADMIN.
+  optional string visibility = 8;
+  optional string required_permission = 9;
+}
+
+// Replaces the whole preset, like the REST PUT.
+message UpdatePresetRequest {
+  string preset_id = 1;
+  string name = 2;
+  optional string description = 3;
+  optional string model = 4;
+  optional string node_id = 5;
+  optional string system_prompt = 6;
+  optional double temperature = 7;
+  optional int32 num_ctx = 8;
+  optional string visibility = 9;
+  optional string required_permission = 10;
+}
+
+message DeletePresetRequest {
+  string preset_id = 1;
 }

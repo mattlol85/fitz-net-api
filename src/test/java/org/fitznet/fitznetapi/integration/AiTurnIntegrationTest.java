@@ -647,7 +647,14 @@ class AiTurnIntegrationTest {
     assertEquals("error", assistant.path("status").asText());
     assertEquals("NODE_OFFLINE", assistant.path("error").path("code").asText());
     assertEquals(assistant.path("id").asText(), error.path("messageId").asText());
-    assertTrue(assistant.path("generation").isNull());
+    JsonNode generation = assistant.path("generation");
+    assertEquals(LLAMA, generation.path("model").asText());
+    assertEquals(nodeA, generation.path("nodeId").asText());
+    assertEquals("Alpha", generation.path("nodeName").asText());
+    assertFalse(generation.path("auto").asBoolean());
+    assertEquals("error", generation.path("finishReason").asText());
+    assertTrue(generation.path("promptTokens").isNull());
+    assertTrue(generation.path("contextLength").isNull());
     assertEquals(0, alpha.chatCalls.get());
     assertEquals(0, bravo.chatCalls.get(), "an explicit node is never substituted silently");
   }
