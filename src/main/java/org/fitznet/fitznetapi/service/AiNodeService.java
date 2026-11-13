@@ -15,8 +15,11 @@ import org.fitznet.fitznetapi.dto.responses.NodeRegisterResponseDto;
 import org.fitznet.fitznetapi.model.AiNode;
 import org.fitznet.fitznetapi.model.NodeStatus;
 import org.fitznet.fitznetapi.repository.AiNodeRepository;
+import org.fitznet.fitznetapi.service.ai.NodeActivityTracker;
+import org.fitznet.fitznetapi.service.ai.NodeStatusResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -34,6 +37,9 @@ public class AiNodeService {
   private final PasswordEncoder passwordEncoder;
   private final RestClient ollamaRestClient;
   private final OllamaChatStreamer ollamaChatStreamer;
+  private final NodeActivityTracker activityTracker;
+  private final NodeStatusResolver statusResolver;
+  private final String keepAlive;
   private final SecureRandom secureRandom = new SecureRandom();
 
   public AiNodeService(
@@ -41,12 +47,18 @@ public class AiNodeService {
       NodeEnrollmentService nodeEnrollmentService,
       PasswordEncoder passwordEncoder,
       RestClient ollamaRestClient,
-      OllamaChatStreamer ollamaChatStreamer) {
+      OllamaChatStreamer ollamaChatStreamer,
+      NodeActivityTracker activityTracker,
+      NodeStatusResolver statusResolver,
+      @Value("${ollama.keep-alive:30m}") String keepAlive) {
     this.aiNodeRepository = aiNodeRepository;
     this.nodeEnrollmentService = nodeEnrollmentService;
     this.passwordEncoder = passwordEncoder;
     this.ollamaRestClient = ollamaRestClient;
     this.ollamaChatStreamer = ollamaChatStreamer;
+    this.activityTracker = activityTracker;
+    this.statusResolver = statusResolver;
+    this.keepAlive = keepAlive;
   }
 
   public NodeRegisterResponseDto register(NodeRegisterRequestDto request) {
@@ -76,6 +88,21 @@ public class AiNodeService {
 
   public void heartbeat(
       String nodeId, String nodeKey, NodeStatus status, List<String> models, String address) {
+    heartbeat(nodeId, nodeKey, status, models, address, null, null);
+  }
+
+  /**
+   * Records a heartbeat. {@code vramTotalMb} / {@code vramUsedMb} are optional: an absent value
+   * leaves the stored one untouched, and {@code vramReportedAt} moves only when one is present.
+   */
+  public void heartbeat(
+      String nodeId,
+      String nodeKey,
+      NodeStatus status,
+      List<String> models,
+      String address,
+      Integer vramTotalMb,
+      Integer vramUsedMb) {
     AiNode node =
         aiNodeRepository
             .findById(nodeId)
@@ -92,6 +119,15 @@ public class AiNodeService {
     }
     if (address != null) {
       node.setAddress(address);
+    }
+    if (vramTotalMb != null || vramUsedMb != null) {
+      if (vramTotalMb != null) {
+        node.setVramTotalMb(vramTotalMb);
+      }
+      if (vramUsedMb != null) {
+        node.setVramUsedMb(vramUsedMb);
+      }
+      node.setVramReportedAt(node.getLastHeartbeatAt());
     }
     aiNodeRepository.save(node);
   }
@@ -164,11 +200,15 @@ public class AiNodeService {
   }
 
   public void streamChat(ChatTarget target, List<ChatMessageDto> messages, OutputStream out) {
-    ollamaChatStreamer.stream(target, messages, out);
+    try (NodeActivityTracker.Generation ignored = activityTracker.begin(target.nodeId())) {
+      ollamaChatStreamer.stream(target, messages, out);
+    }
   }
 
   public void streamChat(ChatTarget target, List<ChatMessageDto> messages, ChatEventSink sink) {
-    ollamaChatStreamer.stream(target, messages, sink);
+    try (NodeActivityTracker.Generation ignored = activityTracker.begin(target.nodeId())) {
+      ollamaChatStreamer.stream(target, messages, sink);
+    }
   }
 
   public ChatResponseDto chat(String nodeId, List<ChatMessageDto> messages, String requestedModel) {
@@ -182,9 +222,10 @@ public class AiNodeService {
                 messages.stream()
                     .map(m -> Map.of("role", m.getRole(), "content", m.getContent()))
                     .toList(),
-            "stream", false);
+            "stream", false,
+            "keep_alive", keepAlive);
 
-    try {
+    try (NodeActivityTracker.Generation ignored = activityTracker.begin(nodeId)) {
       // Build the full literal URL rather than substituting a "{address}" URI
       // template variable: RestClient percent-encodes expanded template
       // values, which turns the ":" between host and port into "%3A" and
@@ -215,7 +256,7 @@ public class AiNodeService {
     return new NodeDto(
         node.getId(),
         node.getName(),
-        node.getStatus(),
+        statusResolver.effective(node),
         node.getOs(),
         node.getModels(),
         node.getVramGb(),

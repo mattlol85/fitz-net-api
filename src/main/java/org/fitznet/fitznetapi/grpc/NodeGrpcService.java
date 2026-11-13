@@ -85,11 +85,13 @@ public class NodeGrpcService extends NodeServiceGrpc.NodeServiceImplBase {
         new NodeHeartbeatRequestDto(
             optional(request.hasStatus(), request.getStatus()),
             request.hasModels() ? request.getModels().getValuesList() : null,
-            optional(request.hasAddress(), request.getAddress()));
+            optional(request.hasAddress(), request.getAddress()),
+            request.hasVramTotalMb() ? request.getVramTotalMb() : null,
+            request.hasVramUsedMb() ? request.getVramUsedMb() : null);
     nodeController.heartbeat(
         validator.required("node_id", request.getNodeId()),
         validator.required("node_key", request.getNodeKey()),
-        dto);
+        validator.valid(dto));
     reply(observer, HeartbeatResponse.getDefaultInstance());
   }
 

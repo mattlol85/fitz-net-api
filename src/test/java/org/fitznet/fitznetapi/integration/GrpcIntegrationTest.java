@@ -337,6 +337,34 @@ class GrpcIntegrationTest {
     assertEquals(List.of("llama3:8b"), listed.getModelsList());
     assertEquals(24.0, listed.getVramGb());
 
+    nodes.heartbeat(
+        HeartbeatRequest.newBuilder()
+            .setNodeId(registered.getNodeId())
+            .setNodeKey(registered.getNodeKey())
+            .setVramTotalMb(16384)
+            .setVramUsedMb(4096)
+            .build());
+    AiNode withVram = aiNodeRepository.findById(registered.getNodeId()).orElseThrow();
+    assertEquals(16384, withVram.getVramTotalMb());
+    assertEquals(4096, withVram.getVramUsedMb());
+    nodes.heartbeat(
+        HeartbeatRequest.newBuilder()
+            .setNodeId(registered.getNodeId())
+            .setNodeKey(registered.getNodeKey())
+            .build());
+    assertEquals(
+        16384, aiNodeRepository.findById(registered.getNodeId()).orElseThrow().getVramTotalMb());
+    assertStatus(
+        Status.Code.INVALID_ARGUMENT,
+        "400",
+        () ->
+            nodes.heartbeat(
+                HeartbeatRequest.newBuilder()
+                    .setNodeId(registered.getNodeId())
+                    .setNodeKey(registered.getNodeKey())
+                    .setVramUsedMb(-5)
+                    .build()));
+
     assertStatus(
         Status.Code.UNAUTHENTICATED,
         "401",
