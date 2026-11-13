@@ -50,6 +50,8 @@ public final class FakeOllama implements AutoCloseable {
   private volatile long chatLineDelayMillis;
   private volatile String completionReply = "A Nice Title";
   private volatile int completionStatus = 200;
+  private volatile CountDownLatch completionGate = new CountDownLatch(0);
+  private volatile String chatErrorBody = "{\"error\":\"boom\"}";
 
   public FakeOllama() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -103,9 +105,18 @@ public final class FakeOllama implements AutoCloseable {
           chatBodies.add(body);
           chatCalls.incrementAndGet();
           if (body.contains("\"stream\":false")) {
+            try {
+              completionGate.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+              Thread.currentThread().interrupt();
+            }
+            if (completionStatus != 200) {
+              respond(exchange, completionStatus, "{\"error\":\"completion failed\"}");
+              return;
+            }
             respond(
                 exchange,
-                completionStatus,
+                200,
                 "{\"message\":{\"role\":\"assistant\",\"content\":\""
                     + completionReply.replace("\"", "\\\"")
                     + "\"},\"done\":true}");
@@ -117,7 +128,7 @@ public final class FakeOllama implements AutoCloseable {
             Thread.currentThread().interrupt();
           }
           if (chatStatus != 200) {
-            respond(exchange, chatStatus, "{\"error\":\"boom\"}");
+            respond(exchange, chatStatus, chatErrorBody);
             return;
           }
           exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson");
@@ -168,6 +179,23 @@ public final class FakeOllama implements AutoCloseable {
   public FakeOllama chatStatus(int status) {
     chatStatus = status;
     return this;
+  }
+
+  /** A non-200 chat answer with the given body (e.g. Ollama's {@code {"error": "..."}}). */
+  public FakeOllama chatStatus(int status, String body) {
+    chatStatus = status;
+    chatErrorBody = body;
+    return this;
+  }
+
+  /** Makes non-streaming chats (titles, summaries) wait until {@link #releaseCompletion()}. */
+  public FakeOllama holdCompletion() {
+    completionGate = new CountDownLatch(1);
+    return this;
+  }
+
+  public void releaseCompletion() {
+    completionGate.countDown();
   }
 
   public FakeOllama chatLineDelayMillis(long millis) {
@@ -307,6 +335,7 @@ public final class FakeOllama implements AutoCloseable {
   public void close() {
     generateGate.countDown();
     chatGate.countDown();
+    completionGate.countDown();
     if (closed.compareAndSet(false, true)) {
       server.stop(0);
     }

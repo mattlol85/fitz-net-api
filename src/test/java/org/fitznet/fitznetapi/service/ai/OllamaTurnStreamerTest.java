@@ -770,4 +770,63 @@ class OllamaTurnStreamerTest {
     streamer().stream(request(target(true)), sink);
     assertEquals(0, tracker.active("node-1"));
   }
+
+  // ---- Ollama's error body -----------------------------------------------------------------
+
+  private static void respondStatus(HttpExchange exchange, int status, String body)
+      throws IOException {
+    byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+    exchange.sendResponseHeaders(status, bytes.length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(bytes);
+    }
+  }
+
+  @Test
+  void shouldUseOllamasErrorTextWhenAnHttpErrorCarriesAJsonBody() throws Exception {
+    startOllama(
+        exchange ->
+            respondStatus(
+                exchange,
+                500,
+                "{\"error\":\"model requires more system memory (8.0 GiB) than is available\"}"));
+
+    TurnResult result = streamer().stream(request(target(true)), new RecordingSink());
+
+    assertEquals(Ended.ERROR, result.ended());
+    assertEquals(ChatErrorCodes.NODE_ERROR, result.error().code());
+    assertEquals(
+        "Node error: model requires more system memory (8.0 GiB) than is available",
+        result.error().message());
+    assertFalse(result.upstreamStarted());
+  }
+
+  @Test
+  void shouldTruncateALongOllamaErrorTextToThreeHundredCharacters() throws Exception {
+    startOllama(
+        exchange -> respondStatus(exchange, 500, "{\"error\":\"" + "e".repeat(1500) + "\"}"));
+
+    TurnResult result = streamer().stream(request(target(true)), new RecordingSink());
+
+    assertEquals("Node error: " + "e".repeat(300), result.error().message());
+  }
+
+  @Test
+  void shouldFallBackToTheStatusWhenTheErrorBodyIsNotJsonHasNoErrorOrIsHuge() throws Exception {
+    String[] bodies = {
+      "<html>bad gateway</html>",
+      "{\"message\":\"no error key\"}",
+      "{\"error\":42}",
+      "{\"error\":\"" + "x".repeat(5000) + "\"}", // longer than the bounded read: cut off, unparsable
+      ""
+    };
+    for (String body : bodies) {
+      startOllama(exchange -> respondStatus(exchange, 503, body));
+
+      TurnResult result = streamer().stream(request(target(true)), new RecordingSink());
+
+      assertEquals("Node returned HTTP 503", result.error().message(), body.length() + " byte body");
+      fakeOllama.stop(0);
+    }
+  }
 }

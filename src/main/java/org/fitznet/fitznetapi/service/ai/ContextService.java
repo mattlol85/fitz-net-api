@@ -14,6 +14,7 @@ import org.fitznet.fitznetapi.model.ModelTarget;
 import org.fitznet.fitznetapi.model.StoredSummary;
 import org.fitznet.fitznetapi.repository.AiConversationRepository;
 import org.fitznet.fitznetapi.repository.AiMessageRepository;
+import org.fitznet.fitznetapi.service.OllamaHttp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +46,7 @@ public class ContextService {
   private final ConversationMapper mapper;
   private final ConversationSettingsResolver settings;
   private final GenerationRegistry generations;
+  private final ConversationWrites writes;
   private final Duration summaryTimeout;
 
   public ContextService(
@@ -56,6 +58,7 @@ public class ContextService {
       ConversationMapper mapper,
       ConversationSettingsResolver settings,
       GenerationRegistry generations,
+      ConversationWrites writes,
       @Value("${ollama.read-timeout:180s}") Duration summaryTimeout) {
     this.access = access;
     this.conversations = conversations;
@@ -65,6 +68,7 @@ public class ContextService {
     this.mapper = mapper;
     this.settings = settings;
     this.generations = generations;
+    this.writes = writes;
     this.summaryTimeout = summaryTimeout;
   }
 
@@ -109,11 +113,21 @@ public class ContextService {
    * either, the most recent part of it is summarised and {@code partial} is set.
    */
   public SummarizeResponseDto summarize(String username, String conversationId) {
-    AiConversation conversation = access.owned(username, conversationId);
-    if (generations.isActive(conversation.getId())) {
+    AiConversation owned = access.owned(username, conversationId);
+    // The slot is held for the whole run (the model call is slow): no turn, truncation, deletion or
+    // second summarise can interleave, so the summary matches the messages it was made from.
+    if (!generations.tryAcquire(owned.getId())) {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT, "A generation is already in flight for this conversation");
     }
+    try {
+      return summarizeHoldingSlot(username, access.owned(username, conversationId));
+    } finally {
+      generations.release(owned.getId());
+    }
+  }
+
+  private SummarizeResponseDto summarizeHoldingSlot(String username, AiConversation conversation) {
     ModelTarget target = conversation.getTarget();
     if (target == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The conversation has no model selected");
@@ -145,15 +159,31 @@ public class ContextService {
                   routed.hasCapability("thinking"))
               .trim();
     } catch (IOException ex) {
-      logger.warn("Summarise failed on node {}: {}", routed.nodeId(), ex.getMessage());
+      // The node's own text can echo the prompt: status only above debug level.
+      logger.warn(
+          "Summarise failed on node {}: {}", routed.nodeId(), ex.getClass().getSimpleName() + " " + ex.getMessage());
+      String detail =
+          ex instanceof OllamaHttp.OllamaHttpException http && http.errorText() != null
+              ? "Node error: " + http.errorText()
+              : routed.nodeName() + " did not answer";
+      logger.debug("Summarise failure detail: {}", detail);
       throw new ResponseStatusException(
-          HttpStatus.SERVICE_UNAVAILABLE, "Could not summarise: " + routed.nodeName() + " did not answer");
+          HttpStatus.SERVICE_UNAVAILABLE, "Could not summarise: " + detail);
     }
     if (text.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "The model returned an empty summary");
     }
 
-    int coversThrough = trimmed.get(trimmed.size() - 1).getSeq();
+    AiMessage lastCovered = trimmed.get(trimmed.size() - 1);
+    int coversThrough = lastCovered.getSeq();
+    // Defensive: the summary may only be stored if the messages it covers are still there.
+    if (messages.countByConversationId(conversation.getId()) != stored.size()
+        || messages.findByIdAndConversationId(lastCovered.getId(), conversation.getId())
+            .filter(m -> m.getSeq() == coversThrough)
+            .isEmpty()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "The conversation changed while it was being summarised");
+    }
     StoredSummary summary =
         new StoredSummary(
             text,
@@ -163,18 +193,16 @@ public class ContextService {
             routed.nodeId(),
             transcript.partial(),
             Instant.now());
-    conversation.setSummary(summary);
-    conversations.save(conversation);
+    writes.setSummary(conversation.getId(), summary);
     logger.info(
         "Summarised conversation {} through seq {} (partial={}) on node {}",
         conversation.getId(),
         coversThrough,
         summary.partial(),
         routed.nodeId());
+    AiConversation updated = access.owned(username, conversation.getId());
     return new SummarizeResponseDto(
-        mapper.conversation(conversation),
-        mapper.chatSummary(summary),
-        usage(conversation, stored, routed));
+        mapper.conversation(updated), mapper.chatSummary(summary), usage(updated, stored, routed));
   }
 
   /** The prompt plan for the conversation on {@code routed}. */

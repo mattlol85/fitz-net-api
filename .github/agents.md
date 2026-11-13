@@ -119,6 +119,7 @@ Someone else's conversation is a 404. `TurnService.prepare` validates and applie
 
 `ConversationSettingsResolver.resolve` reads the preset at generation time (a deleted or no longer visible preset is ignored). Attachments are attached to a user message by `TurnService.prepare` (clears `expiresAt`); `AttachmentCleanupHook` deletes them with their messages. A 3 MB image needs `spring.grpc.server.inbound.message.max-size` above gRPC's 4 MiB default only for headroom; Tomcat has no JSON body limit (Jackson caps a string at 20 M characters).
 
+- Conversations are written by several actors (turns, PATCH, title, summarise): outside the turn pipeline use `ConversationWrites` (targeted `$set`/`$unset`) and never `conversations.save` a document loaded earlier; `summarize` and turns hold the conversation's `GenerationRegistry` slot, and the next `seq` comes from the stored messages, not from `nextSeq`.
 - Background work must go through `MdcPropagation` so the `correlationId` follows it.
 
 **Usernames are case-insensitive and stored lowercase.** Input is trimmed and lowercased before lookup, so `ZMat` and `zmat` are the same account. Login, reads, updates and deletes accept any casing; responses return the stored lowercase name.

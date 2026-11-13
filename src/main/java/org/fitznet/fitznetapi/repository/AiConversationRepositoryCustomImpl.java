@@ -1,14 +1,18 @@
 package org.fitznet.fitznetapi.repository;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.regex.Pattern;
 import org.bson.types.ObjectId;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
 import org.springframework.data.domain.Sort;
+import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
@@ -55,17 +59,21 @@ public class AiConversationRepositoryCustomImpl implements AiConversationReposit
   }
 
   @Override
-  public Optional<String> firstMatchingContent(String conversationId, String term) {
-    Query query =
-        Query.query(
-                Criteria.where("conversationId")
-                    .is(conversationId)
-                    .and("content")
-                    .regex(literal(term), "i"))
-            .with(Sort.by(Sort.Order.asc("seq")))
-            .limit(1);
-    AiMessage hit = mongoTemplate.findOne(query, AiMessage.class);
-    return Optional.ofNullable(hit).map(AiMessage::getContent);
+  public Map<String, String> firstMatchingContents(Collection<String> conversationIds, String term) {
+    if (conversationIds.isEmpty()) {
+      return Map.of();
+    }
+    Aggregation aggregation =
+        Aggregation.newAggregation(
+            Aggregation.match(
+                Criteria.where("conversationId").in(conversationIds).and("content").regex(literal(term), "i")),
+            Aggregation.sort(Sort.Direction.ASC, "seq"),
+            Aggregation.group("conversationId").first("content").as("content"));
+    Map<String, String> firstHits = new HashMap<>();
+    for (Document row : mongoTemplate.aggregate(aggregation, AiMessage.class, Document.class)) {
+      firstHits.put(row.getString("_id"), row.getString("content"));
+    }
+    return firstHits;
   }
 
   private Object objectId(String id) {

@@ -1,6 +1,7 @@
 package org.fitznet.fitznetapi.service.ai;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -72,7 +73,8 @@ public class OllamaChatCompleter {
           OllamaHttp.post(
               objectMapper, target.address(), "/api/chat", body, connectTimeout, readTimeout);
       if (response.hasNonNull("error")) {
-        throw new IOException("Node returned an error");
+        throw new OllamaHttp.OllamaHttpException(
+            200, OllamaHttp.errorText(objectMapper, response.toString().getBytes(StandardCharsets.UTF_8)));
       }
       return response.path("message").path("content").asText("");
     }

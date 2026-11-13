@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.fitznet.fitznetapi.dto.ConversationSettingsDto;
@@ -26,6 +27,7 @@ import org.fitznet.fitznetapi.repository.AiMessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -64,6 +66,7 @@ public class ConversationService {
   private final GenerationRegistry generations;
   private final ObjectProvider<MessageLifecycleHook> hooks;
   private final PresetService presets;
+  private final ConversationWrites writes;
 
   public ConversationService(
       AiConversationRepository conversations,
@@ -77,7 +80,8 @@ public class ConversationService {
       ConversationSettingsResolver settings,
       GenerationRegistry generations,
       ObjectProvider<MessageLifecycleHook> hooks,
-      PresetService presets) {
+      PresetService presets,
+      ConversationWrites writes) {
     this.conversations = conversations;
     this.messages = messages;
     this.access = access;
@@ -90,6 +94,7 @@ public class ConversationService {
     this.generations = generations;
     this.hooks = hooks;
     this.presets = presets;
+    this.writes = writes;
   }
 
   public ConversationDto create(String username, CreateConversationRequestDto request) {
@@ -130,16 +135,17 @@ public class ConversationService {
     String term = q == null || q.isBlank() ? null : q.trim();
     List<AiConversation> found = conversations.search(username, term, pageSize + 1, skip);
     boolean hasMore = found.size() > pageSize;
+    List<AiConversation> page = found.subList(0, Math.min(found.size(), pageSize));
+    // One query for every row's snippet, not one per row.
+    Map<String, String> firstHits =
+        term == null
+            ? Map.of()
+            : conversations.firstMatchingContents(
+                page.stream().map(AiConversation::getId).toList(), term);
     List<ConversationSummaryDto> items = new ArrayList<>();
-    for (AiConversation conversation : found.subList(0, Math.min(found.size(), pageSize))) {
-      String snippet =
-          term == null
-              ? null
-              : conversations
-                  .firstMatchingContent(conversation.getId(), term)
-                  .map(content -> snippet(content, term))
-                  .orElse(null);
-      items.add(mapper.summaryRow(conversation, snippet));
+    for (AiConversation conversation : page) {
+      String hit = firstHits.get(conversation.getId());
+      items.add(mapper.summaryRow(conversation, hit == null ? null : snippet(hit, term)));
     }
     return new ConversationListDto(items, hasMore);
   }
@@ -150,11 +156,16 @@ public class ConversationService {
     return mapper.detail(conversation, stored, contextService.usageOrNull(conversation, stored));
   }
 
-  /** PATCH: absent fields are untouched; {@code target} and {@code settings} are replaced whole. */
+  /**
+   * PATCH: absent fields are untouched; {@code target} and {@code settings} are replaced whole. Only
+   * the fields present in the request are written ({@code $set} / {@code $unset}), so a turn that
+   * lands meanwhile keeps its counters, leaf and target.
+   */
   public ConversationDto update(
       String username, String conversationId, UpdateConversationRequestDto request) {
-    AiConversation conversation = access.owned(username, conversationId);
+    access.owned(username, conversationId);
     Instant now = Instant.now();
+    Update update = new Update();
     boolean touched = false;
 
     if (request.getTitle() != null) {
@@ -162,38 +173,45 @@ public class ConversationService {
       if (title.isEmpty()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title must not be blank");
       }
-      conversation.setTitle(title);
-      conversation.setTitleSource(AiConversation.TITLE_USER);
+      update.set("title", title).set("titleSource", AiConversation.TITLE_USER);
       touched = true;
     }
     if (request.getPinned() != null) {
-      conversation.setPinned(request.getPinned()); // pinning does not move updatedAt
+      update.set("pinned", request.getPinned()); // pinning does not move updatedAt
     }
     ModelTarget newTarget = null;
     if (request.isTargetPresent()) {
       newTarget = toTarget(request.getTarget());
-      conversation.setTarget(newTarget);
+      setOrUnset(update, "target", newTarget);
     }
     if (request.isSettingsPresent()) {
       ConversationSettingsDto s = request.getSettings();
       AiPreset preset = visiblePreset(username, s == null ? null : s.getPresetId());
-      conversation.setPresetId(preset == null ? null : preset.getId());
-      conversation.setSystemPrompt(s == null ? null : blankToNull(s.getSystemPrompt()));
+      setOrUnset(update, "presetId", preset == null ? null : preset.getId());
+      setOrUnset(update, "systemPrompt", s == null ? null : blankToNull(s.getSystemPrompt()));
       touched = true;
       if (!request.isTargetPresent() && preset != null && preset.getModel() != null) {
         // A preset that pins a model sets the target when the request names none.
         newTarget = new ModelTarget(preset.getModel(), preset.getNodeId());
-        conversation.setTarget(newTarget);
+        update.set("target", newTarget);
       }
     }
     if (touched) {
-      conversation.setUpdatedAt(now);
+      update.set("updatedAt", now);
     }
-    AiConversation saved = conversations.save(conversation);
+    writes.apply(conversationId, update);
     if (newTarget != null) {
       preferences.setLastTarget(username, newTarget);
     }
-    return mapper.conversation(saved);
+    return mapper.conversation(access.owned(username, conversationId));
+  }
+
+  private static void setOrUnset(Update update, String field, Object value) {
+    if (value == null) {
+      update.unset(field);
+    } else {
+      update.set(field, value);
+    }
   }
 
   /** Deletes the conversation and its messages. 409 while a generation is in flight. */
@@ -222,15 +240,13 @@ public class ConversationService {
     }
     try {
       Optional<String> title = askForTitle(conversation);
-      if (title.isPresent()) {
-        conversation.setTitle(title.get());
-        conversation.setTitleSource(AiConversation.TITLE_AUTO);
-        conversation = conversations.save(conversation);
-      }
+      // Targeted and conditional: the model took a while, and in that time a turn may have moved the
+      // counters or the user may have renamed the conversation (their title wins).
+      title.ifPresent(t -> writes.applyAutoTitle(conversationId, t));
     } catch (IOException | RuntimeException ex) {
       logger.info("Title generation skipped for conversation {}: {}", conversationId, ex.toString());
     }
-    return mapper.conversation(conversation);
+    return mapper.conversation(access.owned(username, conversationId));
   }
 
   private Optional<String> askForTitle(AiConversation conversation) throws IOException {

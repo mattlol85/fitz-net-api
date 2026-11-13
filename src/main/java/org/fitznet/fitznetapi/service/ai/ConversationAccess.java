@@ -1,5 +1,6 @@
 package org.fitznet.fitznetapi.service.ai;
 
+import java.util.List;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
 import org.fitznet.fitznetapi.repository.AiConversationRepository;
@@ -27,6 +28,11 @@ public class ConversationAccess {
     return conversations
         .findByIdAndOwnerUsername(conversationId, username)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
+  }
+
+  /** The stored messages of a conversation in {@code seq} order. */
+  public List<AiMessage> history(String conversationId) {
+    return messages.findByConversationIdOrderBySeqAsc(conversationId);
   }
 
   public AiMessage message(AiConversation conversation, String messageId) {

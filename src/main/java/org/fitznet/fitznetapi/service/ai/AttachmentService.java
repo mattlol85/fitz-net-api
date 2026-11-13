@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -190,19 +191,18 @@ public class AttachmentService {
     deleteAll(ids);
   }
 
-  /** The base64 bytes of the referenced images, in order; missing ones are skipped. */
-  public List<String> base64Images(List<MessageAttachment> refs) {
-    if (refs == null || refs.isEmpty()) {
-      return List.of();
+  /**
+   * The base64 encoding of each attachment, read in one query. Ids without a stored attachment are
+   * absent from the result.
+   */
+  public Map<String, String> loadImages(Collection<String> ids) {
+    if (ids.isEmpty()) {
+      return Map.of();
     }
-    Map<String, AiAttachment> byId =
-        attachments.findAllById(refs.stream().map(MessageAttachment::id).collect(Collectors.toSet())).stream()
-            .collect(Collectors.toMap(AiAttachment::getId, Function.identity()));
-    List<String> images = new ArrayList<>();
-    for (MessageAttachment ref : refs) {
-      AiAttachment attachment = byId.get(ref.id());
-      if (attachment != null && attachment.getData() != null) {
-        images.add(Base64.getEncoder().encodeToString(attachment.getData()));
+    Map<String, String> images = new HashMap<>();
+    for (AiAttachment attachment : attachments.findAllById(ids)) {
+      if (attachment.getData() != null) {
+        images.put(attachment.getId(), Base64.getEncoder().encodeToString(attachment.getData()));
       }
     }
     return images;

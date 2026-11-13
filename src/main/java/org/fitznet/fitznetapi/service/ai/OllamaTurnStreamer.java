@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import org.fitznet.fitznetapi.service.ChatEventSink;
+import org.fitznet.fitznetapi.service.OllamaHttp;
 import org.fitznet.fitznetapi.service.ai.TurnResult.Ended;
 import org.fitznet.fitznetapi.service.ai.TurnResult.TurnError;
 import org.fitznet.fitznetapi.service.ai.TurnResult.TurnStats;
@@ -193,7 +194,7 @@ public class OllamaTurnStreamer {
       int status = response.statusCode();
       if (status / 100 != 2) {
         logger.warn("Node {} returned HTTP {} for chat", target.nodeId(), status);
-        fail(ChatErrorCodes.NODE_ERROR, "Node returned HTTP " + status);
+        fail(ChatErrorCodes.NODE_ERROR, errorMessage(response, status));
         return;
       }
       try (BufferedReader reader =
@@ -225,6 +226,24 @@ public class OllamaTurnStreamer {
         }
         fail(ChatErrorCodes.NODE_UNREACHABLE, "Node closed the stream before finishing");
       }
+    }
+
+    /**
+     * Ollama's own error text when the body is JSON with an {@code error} string, else the bare
+     * status. The text is only logged at debug level: it can echo what was asked.
+     */
+    private String errorMessage(HttpResponse<InputStream> response, int status) {
+      try {
+        byte[] body = response.body().readNBytes(2048);
+        String text = OllamaHttp.errorText(objectMapper, body);
+        if (text != null) {
+          logger.debug("Node {} error text: {}", target.nodeId(), text);
+          return "Node error: " + text;
+        }
+      } catch (IOException | RuntimeException ex) {
+        // fall through to the status
+      }
+      return "Node returned HTTP " + status;
     }
 
     private HttpResponse<InputStream> open() throws IOException {

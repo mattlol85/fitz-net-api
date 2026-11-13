@@ -3,6 +3,7 @@ package org.fitznet.fitznetapi.service.ai;
 import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +26,7 @@ import org.fitznet.fitznetapi.repository.AiNodeRepository;
 import org.fitznet.fitznetapi.service.ChatEventSink;
 import org.fitznet.fitznetapi.service.ai.TurnResult.Ended;
 import org.slf4j.Logger;
+import org.springframework.data.mongodb.core.query.Update;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -130,6 +132,7 @@ public class TurnService {
   private final ObjectProvider<MessageLifecycleHook> hooks;
   private final AttachmentService attachments;
   private final AiNodeRepository nodes;
+  private final ConversationWrites writes;
   private final int maxMessageChars;
 
   public TurnService(
@@ -144,6 +147,7 @@ public class TurnService {
       ObjectProvider<MessageLifecycleHook> hooks,
       AttachmentService attachments,
       AiNodeRepository nodes,
+      ConversationWrites writes,
       @Value("${ai.chat.max-message-chars:32000}") int maxMessageChars) {
     this.conversations = conversations;
     this.messages = messages;
@@ -156,6 +160,7 @@ public class TurnService {
     this.hooks = hooks;
     this.attachments = attachments;
     this.nodes = nodes;
+    this.writes = writes;
     this.maxMessageChars = maxMessageChars;
   }
 
@@ -167,49 +172,51 @@ public class TurnService {
    * call {@link #run} or {@link #abort}.
    */
   public PreparedTurn prepare(String username, TurnCommand command) {
-    AiConversation conversation = access.owned(username, command.conversationId());
-    AiMessage anchor = null;
-    // Attachments to attach to the user message, and whether an edit replaces the existing ones.
-    List<AiAttachment> newAttachments = List.of();
-    boolean replaceAttachments = false;
-    switch (command.kind()) {
-      case SEND -> {
-        newAttachments =
-            attachments.resolveForNewMessage(username, command.attachmentIds());
-        validateContent(command.content(), !newAttachments.isEmpty());
-      }
-      case REGENERATE -> {
-        anchor = access.message(conversation, command.messageId());
-        if (!AiMessage.ROLE_ASSISTANT.equals(anchor.getRole())) {
-          throw badRequest("Only an assistant message can be regenerated");
-        }
-      }
-      case EDIT -> {
-        anchor = access.message(conversation, command.messageId());
-        if (!AiMessage.ROLE_USER.equals(anchor.getRole())) {
-          throw badRequest("Only a user message can be edited");
-        }
-        replaceAttachments = command.attachmentIdsPresent();
-        if (replaceAttachments) {
-          newAttachments = attachments.resolveForEdit(username, command.attachmentIds(), anchor);
-        }
-        int resulting =
-            replaceAttachments
-                ? newAttachments.size()
-                : anchor.getAttachments() == null ? 0 : anchor.getAttachments().size();
-        validateContent(command.content(), resulting > 0);
-      }
-    }
-    ModelTarget requested = ConversationService.toTarget(command.target());
-    ModelTarget effective = requested != null ? requested : conversation.getTarget();
-    if (effective == null) {
-      throw badRequest("No model selected: send a target or set one on the conversation");
-    }
-    if (!generations.tryAcquire(conversation.getId())) {
+    AiConversation found = access.owned(username, command.conversationId()); // 404 first
+    if (!generations.tryAcquire(found.getId())) {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT, "A generation is already in flight for this conversation");
     }
     try {
+      // Everything the turn is based on is read after the slot is ours: another turn, an edit or a
+      // summarise that finished a moment ago may have changed the conversation or its messages.
+      AiConversation conversation = access.owned(username, command.conversationId());
+      AiMessage anchor = null;
+      // Attachments to attach to the user message, and whether an edit replaces the existing ones.
+      List<AiAttachment> newAttachments = List.of();
+      boolean replaceAttachments = false;
+      switch (command.kind()) {
+        case SEND -> {
+          newAttachments = attachments.resolveForNewMessage(username, command.attachmentIds());
+          validateContent(command.content(), !newAttachments.isEmpty());
+        }
+        case REGENERATE -> {
+          anchor = access.message(conversation, command.messageId());
+          if (!AiMessage.ROLE_ASSISTANT.equals(anchor.getRole())) {
+            throw badRequest("Only an assistant message can be regenerated");
+          }
+        }
+        case EDIT -> {
+          anchor = access.message(conversation, command.messageId());
+          if (!AiMessage.ROLE_USER.equals(anchor.getRole())) {
+            throw badRequest("Only a user message can be edited");
+          }
+          replaceAttachments = command.attachmentIdsPresent();
+          if (replaceAttachments) {
+            newAttachments = attachments.resolveForEdit(username, command.attachmentIds(), anchor);
+          }
+          int resulting =
+              replaceAttachments
+                  ? newAttachments.size()
+                  : anchor.getAttachments() == null ? 0 : anchor.getAttachments().size();
+          validateContent(command.content(), resulting > 0);
+        }
+      }
+      ModelTarget requested = ConversationService.toTarget(command.target());
+      ModelTarget effective = requested != null ? requested : conversation.getTarget();
+      if (effective == null) {
+        throw badRequest("No model selected: send a target or set one on the conversation");
+      }
       PreparedTurn turn =
           apply(
               conversation, command, anchor, requested, effective, newAttachments, replaceAttachments);
@@ -218,7 +225,7 @@ public class TurnService {
       }
       return turn;
     } catch (RuntimeException ex) {
-      generations.release(conversation.getId());
+      generations.release(found.getId());
       throw ex;
     }
   }
@@ -236,6 +243,10 @@ public class TurnService {
     List<MessageAttachment> refs =
         new ArrayList<>(newAttachments.stream().map(AttachmentService::ref).toList());
     List<AiMessage> existing = messages.findByConversationIdOrderBySeqAsc(conversation.getId());
+    // The stored messages are the truth: the counter on the conversation may lag behind them.
+    AiMessage last = existing.isEmpty() ? null : existing.get(existing.size() - 1);
+    int nextSeq = last == null ? 1 : last.getSeq() + 1;
+    boolean titleChanged = false;
     AiMessage user;
     int assistantSeq;
     int fromSeq;
@@ -246,18 +257,18 @@ public class TurnService {
             messages.save(
                 newMessage(
                     conversation,
-                    conversation.getNextSeq(),
-                    conversation.getActiveLeafId(),
+                    nextSeq,
+                    last == null ? null : last.getId(),
                     AiMessage.ROLE_USER,
                     content,
                     refs,
                     AiMessage.STATUS_COMPLETE,
                     now));
         attachments.attach(newAttachments, conversation.getId(), user.getId());
-        assistantSeq = conversation.getNextSeq() + 1;
+        assistantSeq = nextSeq + 1;
         fromSeq = Integer.MAX_VALUE; // nothing deleted
         if (existing.isEmpty()) {
-          provisionalTitle(conversation, content);
+          titleChanged = provisionalTitle(conversation, content);
         }
       }
       case REGENERATE -> {
@@ -294,7 +305,7 @@ public class TurnService {
         messages.save(user);
         assistantSeq = fromSeq + 1;
         if (existing.get(0).getId().equals(user.getId())) {
-          provisionalTitle(conversation, content);
+          titleChanged = provisionalTitle(conversation, content);
         }
         // A deletion that reaches into the summarised range invalidates the summary; an edit
         // rewrites the user message itself, so it counts from that message.
@@ -302,9 +313,11 @@ public class TurnService {
       default -> throw new IllegalStateException("Unknown turn kind");
     }
 
+    boolean summaryDropped = false;
     if (conversation.getSummary() != null
         && conversation.getSummary().coversThroughSeq() >= fromSeq) {
       conversation.setSummary(null);
+      summaryDropped = true;
     }
     AiMessage assistant =
         messages.save(
@@ -324,7 +337,23 @@ public class TurnService {
     if (requested != null) {
       conversation.setTarget(requested);
     }
-    conversations.save(conversation);
+    // Targeted write: only what the turn owns, so a PATCH that landed meanwhile is not overwritten.
+    Update update =
+        new Update()
+            .set("nextSeq", conversation.getNextSeq())
+            .set("activeLeafId", conversation.getActiveLeafId())
+            .set("messageCount", conversation.getMessageCount())
+            .set("updatedAt", now);
+    if (summaryDropped) {
+      update.unset("summary");
+    }
+    if (requested != null) {
+      update.set("target", requested);
+    }
+    writes.apply(conversation.getId(), update);
+    if (titleChanged) {
+      writes.applyProvisionalTitle(conversation.getId(), conversation.getTitle());
+    }
     logger.info(
         "Turn {} on conversation {}: user message {}, assistant message {}",
         command.kind(),
@@ -378,18 +407,20 @@ public class TurnService {
         .build();
   }
 
-  private static void provisionalTitle(AiConversation conversation, String content) {
+  /** Sets the in-memory title from the first line; returns whether it changed. */
+  private static boolean provisionalTitle(AiConversation conversation, String content) {
     if (!AiConversation.TITLE_DEFAULT.equals(conversation.getTitleSource())) {
-      return;
+      return false;
     }
     String firstLine = content.strip().lines().findFirst().orElse("").strip();
     if (firstLine.isEmpty()) {
-      return;
+      return false;
     }
     conversation.setTitle(
         firstLine.length() <= PROVISIONAL_TITLE_CHARS
             ? firstLine
             : firstLine.substring(0, PROVISIONAL_TITLE_CHARS));
+    return true;
   }
 
   /** Content may be empty only when the message carries at least one image. */
@@ -460,6 +491,9 @@ public class TurnService {
     }
     RoutedTarget routed = ((RouteOutcome.Routed) first).target();
     RoutedTarget from = null;
+    // Read once per turn and reused across failover attempts; so is every image's base64.
+    List<AiMessage> stored = access.history(conversation.getId());
+    Map<String, String> imageCache = new HashMap<>();
 
     for (int attempt = 0; ; attempt++) {
       routed = effective.apply(routed);
@@ -473,7 +507,6 @@ public class TurnService {
             false, List.of());
         return;
       }
-      List<AiMessage> stored = messages.findByConversationIdOrderBySeqAsc(conversation.getId());
       PromptPlan plan =
           ContextBuilder.build(
               stored,
@@ -498,7 +531,7 @@ public class TurnService {
       }
       write(sink, "meta", metaEvent(turn, routed, plan, effective));
 
-      TurnResult result = streamer.stream(turnRequest(turn, effective, routed, plan), sink);
+      TurnResult result = streamer.stream(turnRequest(turn, effective, routed, plan, imageCache), sink);
 
       if (result.ended() == Ended.ERROR
           && routed.auto()
@@ -637,21 +670,40 @@ public class TurnService {
   }
 
   private TurnRequest turnRequest(
-      PreparedTurn turn, EffectiveSettings effective, RoutedTarget routed, PromptPlan plan) {
+      PreparedTurn turn,
+      EffectiveSettings effective,
+      RoutedTarget routed,
+      PromptPlan plan,
+      Map<String, String> imageCache) {
     boolean vision = routed.hasCapability("vision");
     List<TurnMessage> prompt = new ArrayList<>();
     if (plan.summaryActive()) {
       prompt.add(TurnMessage.of("system", ContextBuilder.SUMMARY_PREFIX + plan.summaryUsed().text()));
     }
+    // The new user message always carries its images (a model without vision was rejected before
+    // this point); older messages only for a vision model, else they are omitted.
+    Set<String> wanted = new HashSet<>();
     for (AiMessage message : plan.messages()) {
-      // The new user message always carries its images (a model without vision was rejected
-      // before this point); older messages only for a vision model, else they are omitted.
+      if ((vision || message.getId().equals(turn.userMessageId())) && message.getAttachments() != null) {
+        message.getAttachments().forEach(a -> wanted.add(a.id()));
+      }
+    }
+    wanted.removeAll(imageCache.keySet());
+    if (!wanted.isEmpty()) {
+      imageCache.putAll(attachments.loadImages(wanted));
+    }
+    for (AiMessage message : plan.messages()) {
       boolean sendImages = vision || message.getId().equals(turn.userMessageId());
-      prompt.add(
-          new TurnMessage(
-              message.getRole(),
-              message.getContent(),
-              sendImages ? attachments.base64Images(message.getAttachments()) : List.of()));
+      List<String> images = new ArrayList<>();
+      if (sendImages && message.getAttachments() != null) {
+        for (MessageAttachment ref : message.getAttachments()) {
+          String encoded = imageCache.get(ref.id());
+          if (encoded != null) {
+            images.add(encoded);
+          }
+        }
+      }
+      prompt.add(new TurnMessage(message.getRole(), message.getContent(), images));
     }
     return new TurnRequest(
         routed,
