@@ -115,6 +115,27 @@ class AiConversationStaleWriteIntegrationTest extends AiChatTestBase {
     assertEquals("auto", after.getTitleSource());
   }
 
+  @Test
+  void shouldStartTheStatsClockBeforeAnyMongoCallOfTheRestHandler() throws Exception {
+    AiConversation conversation = conversation(LLAMA, nodeA);
+    AtomicBoolean slowed = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              if (slowed.compareAndSet(false, true)) {
+                Thread.sleep(300); // the first Mongo call of the turn is slow
+              }
+              return invocation.callRealMethod();
+            })
+        .when(access)
+        .owned(any(), any());
+
+    List<Sse> events = send(conversation.getId(), "hello");
+
+    JsonNode stats = events.get(events.size() - 1).data().path("stats");
+    assertTrue(stats.path("totalMs").asLong() >= 300, "totalMs " + stats.path("totalMs"));
+    assertTrue(stats.path("ttftMs").asLong() >= 300, "ttftMs " + stats.path("ttftMs"));
+  }
+
   // ---- history and images are read once per turn -------------------------------------------
 
   @Test

@@ -50,9 +50,12 @@ import tools.jackson.databind.ObjectMapper;
  * fail over before that).
  *
  * <p><b>Cancel.</b> While a turn is open a ticker thread writes a keep-alive to the sink whenever
- * nothing was written for {@code ai.chat.cancel-poll-interval}. A failed write (browser gone) or a
- * cancelled gRPC call (the sink throws {@link UncheckedIOException}) disconnects the upstream
- * connection, which wakes a reader blocked on a silent model and makes Ollama stop generating. The
+ * nothing was written for {@code ai.chat.cancel-poll-interval} (1 s by default). A failed write
+ * (browser gone) or a cancelled gRPC call (the sink throws {@link UncheckedIOException})
+ * disconnects the upstream connection, which wakes a reader blocked on a silent model and makes
+ * Ollama stop generating. After a browser closes, the first keep-alive still lands in the socket
+ * buffer and only the second write fails, so a closed connection is noticed within about two
+ * intervals (a cancelled gRPC call is noticed on the first). The
  * same ticker enforces {@code ollama.max-stream-duration}. Sink writes are serialised because the
  * ticker and the reader share the sink. The MDC {@code correlationId} is carried onto the ticker.
  * Each turn counts as one in-flight generation on its node for as long as it runs.
@@ -85,7 +88,7 @@ public class OllamaTurnStreamer {
       @Value("${ollama.read-timeout:180s}") Duration readTimeout,
       @Value("${ollama.max-stream-duration:10m}") Duration maxStreamDuration,
       @Value("${ollama.keep-alive:30m}") String keepAlive,
-      @Value("${ai.chat.cancel-poll-interval:2s}") Duration cancelPollInterval) {
+      @Value("${ai.chat.cancel-poll-interval:1s}") Duration cancelPollInterval) {
     this.objectMapper = objectMapper;
     this.activityTracker = activityTracker;
     this.connectTimeout = connectTimeout;

@@ -128,12 +128,17 @@ public class AiConversationController {
       @RequestBody @Valid SendMessageRequestDto request,
       HttpServletResponse response)
       throws IOException {
-    streamTo(response, sendCommand(id, request));
+    long receivedAtNanos = System.nanoTime(); // the stats clock starts here, before anything else
+    streamTo(response, sendCommand(id, request, receivedAtNanos));
   }
 
-  /** gRPC {@code SendMessage}: same checks, events to a sink. */
-  public void sendMessage(String id, SendMessageRequestDto request, ChatEventSink sink) {
-    streamTo(sink, sendCommand(id, request));
+  /**
+   * gRPC {@code SendMessage}: same checks, events to a sink. {@code receivedAtNanos} is taken by the
+   * caller as its first statement.
+   */
+  public void sendMessage(
+      String id, SendMessageRequestDto request, ChatEventSink sink, long receivedAtNanos) {
+    streamTo(sink, sendCommand(id, request, receivedAtNanos));
   }
 
   @PostMapping("/{id}/messages/{messageId}/regenerate")
@@ -143,13 +148,18 @@ public class AiConversationController {
       @RequestBody(required = false) @Valid RegenerateMessageRequestDto request,
       HttpServletResponse response)
       throws IOException {
-    streamTo(response, regenerateCommand(id, messageId, request));
+    long receivedAtNanos = System.nanoTime();
+    streamTo(response, regenerateCommand(id, messageId, request, receivedAtNanos));
   }
 
   /** gRPC {@code RegenerateMessage}. */
   public void regenerateMessage(
-      String id, String messageId, RegenerateMessageRequestDto request, ChatEventSink sink) {
-    streamTo(sink, regenerateCommand(id, messageId, request));
+      String id,
+      String messageId,
+      RegenerateMessageRequestDto request,
+      ChatEventSink sink,
+      long receivedAtNanos) {
+    streamTo(sink, regenerateCommand(id, messageId, request, receivedAtNanos));
   }
 
   @PostMapping("/{id}/messages/{messageId}/edit")
@@ -159,16 +169,21 @@ public class AiConversationController {
       @RequestBody @Valid EditMessageRequestDto request,
       HttpServletResponse response)
       throws IOException {
-    streamTo(response, editCommand(id, messageId, request));
+    long receivedAtNanos = System.nanoTime();
+    streamTo(response, editCommand(id, messageId, request, receivedAtNanos));
   }
 
   /** gRPC {@code EditMessage}. */
   public void editMessage(
-      String id, String messageId, EditMessageRequestDto request, ChatEventSink sink) {
-    streamTo(sink, editCommand(id, messageId, request));
+      String id,
+      String messageId,
+      EditMessageRequestDto request,
+      ChatEventSink sink,
+      long receivedAtNanos) {
+    streamTo(sink, editCommand(id, messageId, request, receivedAtNanos));
   }
 
-  private TurnCommand sendCommand(String id, SendMessageRequestDto request) {
+  private TurnCommand sendCommand(String id, SendMessageRequestDto request, long receivedAtNanos) {
     return new TurnCommand(
         Kind.SEND,
         id,
@@ -177,11 +192,11 @@ public class AiConversationController {
         false,
         request.getAttachmentIds(),
         request.getTarget(),
-        System.nanoTime());
+        receivedAtNanos);
   }
 
   private TurnCommand regenerateCommand(
-      String id, String messageId, RegenerateMessageRequestDto request) {
+      String id, String messageId, RegenerateMessageRequestDto request, long receivedAtNanos) {
     return new TurnCommand(
         Kind.REGENERATE,
         id,
@@ -190,10 +205,11 @@ public class AiConversationController {
         false,
         null,
         request == null ? null : request.getTarget(),
-        System.nanoTime());
+        receivedAtNanos);
   }
 
-  private TurnCommand editCommand(String id, String messageId, EditMessageRequestDto request) {
+  private TurnCommand editCommand(
+      String id, String messageId, EditMessageRequestDto request, long receivedAtNanos) {
     return new TurnCommand(
         Kind.EDIT,
         id,
@@ -202,7 +218,7 @@ public class AiConversationController {
         request.isAttachmentIdsPresent(),
         request.getAttachmentIds(),
         request.getTarget(),
-        System.nanoTime());
+        receivedAtNanos);
   }
 
   /**

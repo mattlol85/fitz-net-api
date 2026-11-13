@@ -273,27 +273,31 @@ public class AiChatGrpcService extends AiChatServiceGrpc.AiChatServiceImplBase {
 
   @Override
   public void sendMessage(SendMessageRequest request, StreamObserver<TurnEvent> observer) {
+    long receivedAtNanos = System.nanoTime(); // first statement: the stats clock starts here
     String id = validator.required("conversation_id", request.getConversationId());
     SendMessageRequestDto dto = validator.valid(AiConversationProtoMapper.fromProto(request));
-    stream(observer, sink -> conversationController.sendMessage(id, dto, sink));
+    stream(observer, sink -> conversationController.sendMessage(id, dto, sink, receivedAtNanos));
   }
 
   @Override
   public void regenerateMessage(
       RegenerateMessageRequest request, StreamObserver<TurnEvent> observer) {
+    long receivedAtNanos = System.nanoTime();
     String id = validator.required("conversation_id", request.getConversationId());
     String messageId = validator.required("message_id", request.getMessageId());
     RegenerateMessageRequestDto dto =
         validator.valid(AiConversationProtoMapper.fromProto(request));
-    stream(observer, sink -> conversationController.regenerateMessage(id, messageId, dto, sink));
+    stream(observer, sink ->
+            conversationController.regenerateMessage(id, messageId, dto, sink, receivedAtNanos));
   }
 
   @Override
   public void editMessage(EditMessageRequest request, StreamObserver<TurnEvent> observer) {
+    long receivedAtNanos = System.nanoTime();
     String id = validator.required("conversation_id", request.getConversationId());
     String messageId = validator.required("message_id", request.getMessageId());
     EditMessageRequestDto dto = validator.valid(AiConversationProtoMapper.fromProto(request));
-    stream(observer, sink -> conversationController.editMessage(id, messageId, dto, sink));
+    stream(observer, sink -> conversationController.editMessage(id, messageId, dto, sink, receivedAtNanos));
   }
 
   private void stream(StreamObserver<TurnEvent> observer, Consumer<ChatEventSink> turn) {

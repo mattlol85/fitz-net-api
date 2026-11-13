@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -20,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.fitznet.fitznetapi.config.EmbeddedMongoTestConfiguration;
 import org.fitznet.fitznetapi.grpc.proto.AiChatServiceGrpc;
@@ -45,6 +48,7 @@ import org.fitznet.fitznetapi.repository.AiNodeRepository;
 import org.fitznet.fitznetapi.repository.AiUserPrefsRepository;
 import org.fitznet.fitznetapi.repository.PermissionRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
+import org.fitznet.fitznetapi.service.ai.ConversationAccess;
 import org.fitznet.fitznetapi.service.ai.FakeOllama;
 import org.fitznet.fitznetapi.util.JwtUtil;
 import org.junit.jupiter.api.AfterEach;
@@ -55,6 +59,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.grpc.test.autoconfigure.LocalGrpcServerPort;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /** The conversation, context and turn RPCs of {@code AiChatService} over a real socket. */
 @SpringBootTest
@@ -74,6 +79,8 @@ class AiChatConversationGrpcIntegrationTest {
   @Autowired private AiMessageRepository messages;
   @Autowired private AiUserPrefsRepository prefs;
   @Autowired private JwtUtil jwtUtil;
+
+  @MockitoSpyBean private ConversationAccess access;
 
   private ManagedChannel channel;
   private FakeOllama alpha;
@@ -432,6 +439,27 @@ class AiChatConversationGrpcIntegrationTest {
     assertEquals(nodeA, detail.getMessages(1).getGeneration().getNodeId());
     assertEquals(10, detail.getMessages(1).getGeneration().getPromptTokens());
     assertEquals("hello", detail.getTitle());
+  }
+
+  @Test
+  void aiTurn_statsClockStartsBeforeAnyMongoCallOfTheGrpcMethod() {
+    String id = newConversation(alice);
+    AtomicBoolean slowed = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              if (slowed.compareAndSet(false, true)) {
+                Thread.sleep(300);
+              }
+              return invocation.callRealMethod();
+            })
+        .when(access)
+        .owned(any(), any());
+
+    List<TurnEvent> events = send(alice, id, "hello");
+
+    var stats = events.get(events.size() - 1).getDone().getStats();
+    assertTrue(stats.getTotalMs() >= 300, "total_ms " + stats.getTotalMs());
+    assertTrue(stats.getTtftMs() >= 300, "ttft_ms " + stats.getTtftMs());
   }
 
   @Test
