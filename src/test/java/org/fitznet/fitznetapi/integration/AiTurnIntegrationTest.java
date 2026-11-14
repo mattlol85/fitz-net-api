@@ -251,7 +251,7 @@ class AiTurnIntegrationTest {
     JsonNode body = sentBody(alpha, 1);
     assertEquals(LLAMA, body.path("model").asText());
     assertTrue(body.path("stream").asBoolean());
-    assertEquals("30m", body.path("keep_alive").asText());
+    assertEquals("10m", body.path("keep_alive").asText());
     assertEquals(8192, body.path("options").path("num_ctx").asInt());
     assertTrue(body.path("think").isMissingNode());
 

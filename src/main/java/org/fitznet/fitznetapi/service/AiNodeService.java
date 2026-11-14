@@ -50,7 +50,7 @@ public class AiNodeService {
       OllamaChatStreamer ollamaChatStreamer,
       NodeActivityTracker activityTracker,
       NodeStatusResolver statusResolver,
-      @Value("${ollama.keep-alive:30m}") String keepAlive) {
+      @Value("${ollama.keep-alive:10m}") String keepAlive) {
     this.aiNodeRepository = aiNodeRepository;
     this.nodeEnrollmentService = nodeEnrollmentService;
     this.passwordEncoder = passwordEncoder;
