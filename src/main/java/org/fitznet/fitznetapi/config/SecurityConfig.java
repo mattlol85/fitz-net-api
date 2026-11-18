@@ -96,6 +96,7 @@ public class SecurityConfig {
         List.of(
             "https://fitznet.org",
             "https://www.fitznet.org",
+            "https://lori.fitznet.org",
             "https://fitznet.doomdns.org",
             "https://api.fitznet.doomdns.org",
             "https://gamerbell.fitznet.doomdns.org",
