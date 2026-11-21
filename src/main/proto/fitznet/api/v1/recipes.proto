@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+// gRPC equivalents of the Lori-Net recipe book controllers (RecipeBookController /recipe-book,
+// RecipeController /recipes, RecipeImageController /recipe-images). Every RPC needs a user JWT with
+// LORINET_ACCESS or ADMIN, and works on the caller's own book only (someone else's recipe or image
+// is NOT_FOUND).
+package fitznet.api.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "org.fitznet.fitznetapi.grpc.proto";
+
+service RecipeBookService {
+  // GET /recipe-book (creates the book with the default chapters on first use)
+  rpc GetRecipeBook(GetRecipeBookRequest) returns (RecipeBook);
+  // PUT /recipe-book
+  rpc UpdateRecipeBook(UpdateRecipeBookRequest) returns (RecipeBook);
+}
+
+service RecipeService {
+  // GET /recipes?ingredient=&ingredient=&q=&chapterId=
+  rpc ListRecipes(ListRecipesRequest) returns (ListRecipesResponse);
+  // GET /recipes/ingredients
+  rpc GetIngredientIndex(GetIngredientIndexRequest) returns (IngredientIndex);
+  // GET /recipes/{id}
+  rpc GetRecipe(GetRecipeRequest) returns (Recipe);
+  // POST /recipes
+  rpc CreateRecipe(CreateRecipeRequest) returns (Recipe);
+  // PUT /recipes/{id}
+  rpc UpdateRecipe(UpdateRecipeRequest) returns (Recipe);
+  // DELETE /recipes/{id}
+  rpc DeleteRecipe(DeleteRecipeRequest) returns (DeleteRecipeResponse);
+}
+
+service RecipeImageService {
+  // POST /recipe-images (raw bytes here instead of base64)
+  rpc UploadRecipeImage(UploadRecipeImageRequest) returns (RecipeImage);
+  // GET /recipe-images/{id}
+  rpc GetRecipeImage(GetRecipeImageRequest) returns (RecipeImageContent);
+}
+
+// ---- book ------------------------------------------------------------------------------------
+
+message RecipeChapter {
+  string id = 1;
+  string name = 2;
+  string tab_color = 3;
+  int64 recipe_count = 4;
+}
+
+message RecipeBook {
+  string id = 1;
+  string title = 2;
+  string cover_color = 3;
+  // In book order.
+  repeated RecipeChapter chapters = 4;
+  // Every recipe, including Unsorted ones.
+  int64 recipe_count = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message GetRecipeBookRequest {}
+
+message RecipeChapterInput {
+  // Absent (or unknown to the book): a new chapter, the server assigns the id.
+  optional string id = 1;
+  string name = 2;
+  string tab_color = 3;
+}
+
+message UpdateRecipeBookRequest {
+  string title = 1;
+  // rose, burgundy, forest, navy, tan or charcoal
+  string cover_color = 2;
+  // Replaces the whole chapter list; recipes of a removed chapter move to Unsorted.
+  repeated RecipeChapterInput chapters = 3;
+}
+
+// ---- recipes ---------------------------------------------------------------------------------
+
+message RecipeIngredient {
+  optional string quantity = 1;
+  optional string unit = 2;
+  string name = 3;
+  optional string note = 4;
+}
+
+message RecipeSummary {
+  string id = 1;
+  string title = 2;
+  // Absent: Unsorted.
+  optional string chapter_id = 3;
+  optional string image_id = 4;
+  optional int32 servings = 5;
+  optional int32 prep_minutes = 6;
+  optional int32 cook_minutes = 7;
+  repeated string ingredient_names = 8;
+  // The date added; never changes.
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message Recipe {
+  string id = 1;
+  string title = 2;
+  optional string chapter_id = 3;
+  optional string image_id = 4;
+  optional int32 servings = 5;
+  optional int32 prep_minutes = 6;
+  optional int32 cook_minutes = 7;
+  repeated string ingredient_names = 8;
+  google.protobuf.Timestamp created_at = 9;
+  repeated RecipeIngredient ingredients = 10;
+  repeated string instructions = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+message ListRecipesRequest {
+  // ANDed; plural and case insensitive (REST: repeated ?ingredient=).
+  repeated string ingredients = 1;
+  // Case-insensitive literal match on the title.
+  optional string q = 2;
+  optional string chapter_id = 3;
+}
+
+message ListRecipesResponse {
+  // Newest first, at most 500.
+  repeated RecipeSummary items = 1;
+  int64 total = 2;
+}
+
+message GetIngredientIndexRequest {}
+
+message RecipeRef {
+  string id = 1;
+  string title = 2;
+}
+
+message IngredientIndexEntry {
+  string name = 1;
+  repeated RecipeRef recipes = 2;
+}
+
+message IngredientIndex {
+  // A to Z.
+  repeated IngredientIndexEntry entries = 1;
+}
+
+message GetRecipeRequest {
+  string recipe_id = 1;
+}
+
+// Body of CreateRecipe and UpdateRecipe (REST RecipeRequestDto).
+message RecipeInput {
+  string title = 1;
+  optional string chapter_id = 2;
+  optional int32 servings = 3;
+  optional int32 prep_minutes = 4;
+  optional int32 cook_minutes = 5;
+  repeated RecipeIngredient ingredients = 6;
+  repeated string instructions = 7;
+  optional string image_id = 8;
+}
+
+message CreateRecipeRequest {
+  RecipeInput recipe = 1;
+}
+
+message UpdateRecipeRequest {
+  string recipe_id = 1;
+  RecipeInput recipe = 2;
+}
+
+message DeleteRecipeRequest {
+  string recipe_id = 1;
+}
+
+message DeleteRecipeResponse {
+  string id = 1;
+  bool deleted = 2;
+}
+
+// ---- images ----------------------------------------------------------------------------------
+
+message UploadRecipeImageRequest {
+  // image/png, image/jpeg or image/webp
+  string mime_type = 1;
+  bytes data = 2;
+}
+
+message RecipeImage {
+  string id = 1;
+  string mime_type = 2;
+  int64 size_bytes = 3;
+  // Absent when the image header could not be read.
+  optional int32 width = 4;
+  optional int32 height = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message GetRecipeImageRequest {
+  string image_id = 1;
+}
+
+message RecipeImageContent {
+  string mime_type = 1;
+  bytes data = 2;
+}
