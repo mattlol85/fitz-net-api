@@ -122,6 +122,28 @@ Someone else's conversation is a 404. `TurnService.prepare` validates and applie
 - Conversations are written by several actors (turns, PATCH, title, summarise): outside the turn pipeline use `ConversationWrites` (targeted `$set`/`$unset`) and never `conversations.save` a document loaded earlier; `summarize` and turns hold the conversation's `GenerationRegistry` slot, and the next `seq` comes from the stored messages, not from `nextSeq`.
 - Background work must go through `MdcPropagation` so the `correlationId` follows it.
 
+### Lori-Net recipe books (`/recipe-book`, `/recipes/**`, `/recipe-images/**`)
+
+All need `LORINET_ACCESS` or `ADMIN` (ADMIN gets the feature, but only their own book). Every query is scoped to the caller: someone else's recipe or image is a **404**. Code: `controller/Recipe*Controller`, `service/recipes/`, `model/Recipe*`, gRPC `RecipeBookService` / `RecipeService` / `RecipeImageService` (`recipes.proto`).
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/recipe-book` | — | `RecipeBookDto { id, title, coverColor, chapters[{ id, name, tabColor, recipeCount }], recipeCount, createdAt }` (created with 7 default chapters on first call) |
+| PUT | `/recipe-book` | `UpdateRecipeBookRequestDto { title (≤60), coverColor (rose\|burgundy\|forest\|navy\|tan\|charcoal), chapters[{ id?, name (≤40), tabColor }] (≤20) }` | `RecipeBookDto` (replaces the chapter list; recipes of removed chapters move to Unsorted, `chapterId` unset) |
+| GET | `/recipes?ingredient=&ingredient=&q=&chapterId=` | — | `RecipeListDto { items[RecipeSummaryDto { id, title, chapterId, imageId, servings, prepMinutes, cookMinutes, ingredientNames, createdAt }], total }` newest first, ≤500; ingredients ANDed, plural/case folded |
+| GET | `/recipes/ingredients` | — | `IngredientIndexDto { entries[{ name, recipes[{ id, title }] }] }` A–Z |
+| GET | `/recipes/{id}` | — | `RecipeDto` (summary + `ingredients[{ quantity, unit, name, note }]`, `instructions[]`, `updatedAt`) |
+| POST / PUT | `/recipes`, `/recipes/{id}` | `RecipeRequestDto { title (≤120), chapterId?, servings? (1–100), prepMinutes?/cookMinutes? (0–1440), ingredients (1–100), instructions (1–50, ≤2000 each), imageId? }` | `RecipeDto` (`createdAt` = date added, never changes) |
+| DELETE | `/recipes/{id}` | — | `DeleteRecipeResponseDto { id, deleted }` (also deletes the photo) |
+| POST | `/recipe-images` | `UploadRecipeImageRequestDto { mimeType, dataBase64 }` png/jpeg/webp, magic number checked, ≤ `recipes.max-image-bytes` (2 MiB) | `RecipeImageDto { id, mimeType, sizeBytes, width, height, createdAt }` |
+| GET | `/recipe-images/{id}` | — | raw bytes, owner only, `Cache-Control: private, max-age=31536000, immutable` |
+
+- Collections: `recipe_books` (unique `owner_unique`), `recipes` (`owner_created`, `owner_ingredient_terms`, `owner_chapter`), `recipe_images` (`expires_at_ttl`, `recipe`); created by `RecipeIndexInitializer`.
+- `IngredientNormalizer` derives `ingredientNames` (index) and `ingredientTerms` (search) on every write; search input goes through the same normalizer.
+- An upload is unclaimed until a recipe saves it as `imageId` (TTL `recipes.image-upload-ttl`, 1 h); replacing or removing a photo deletes the old image.
+- Shared with Matt-GPT attachments, nothing else: `service/images/ImageUploadValidator` + `ImageFormat`, `util/HttpCaching`, `dto/responses/ImageContentDto`. Recipe code never imports `service/ai`, `Ai*` models or AI DTOs.
+- New repositories must be `@RepositoryRestResource(exported = false)` (`spring-boot-starter-data-rest` would publish them otherwise).
+
 **Usernames are case-insensitive and stored lowercase.** Input is trimmed and lowercased before lookup, so `ZMat` and `zmat` are the same account. Login, reads, updates and deletes accept any casing; responses return the stored lowercase name.
 
 **HTTP 409 means the username is already taken** (for example, on `POST /user/create` or a rename that matches another user's name ignoring case).

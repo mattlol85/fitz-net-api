@@ -4,8 +4,8 @@ import static org.fitznet.fitznetapi.grpc.ProtoMapper.ifPresent;
 
 import com.google.protobuf.ByteString;
 import org.fitznet.fitznetapi.dto.requests.PresetRequestDto;
-import org.fitznet.fitznetapi.dto.responses.AttachmentContentDto;
 import org.fitznet.fitznetapi.dto.responses.AttachmentDto;
+import org.fitznet.fitznetapi.dto.responses.ImageContentDto;
 import org.fitznet.fitznetapi.dto.responses.PresetDto;
 import org.fitznet.fitznetapi.dto.responses.PresetListDto;
 import org.fitznet.fitznetapi.grpc.proto.Attachment;
@@ -53,7 +53,7 @@ final class AiPresetProtoMapper {
     return b.build();
   }
 
-  static AttachmentContent toProto(AttachmentContentDto dto) {
+  static AttachmentContent toProto(ImageContentDto dto) {
     return AttachmentContent.newBuilder()
         .setMimeType(dto.mimeType())
         .setData(ByteString.copyFrom(dto.data()))

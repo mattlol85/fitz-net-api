@@ -2,9 +2,10 @@ package org.fitznet.fitznetapi.controller;
 
 import jakarta.validation.Valid;
 import org.fitznet.fitznetapi.dto.requests.UploadAttachmentRequestDto;
-import org.fitznet.fitznetapi.dto.responses.AttachmentContentDto;
 import org.fitznet.fitznetapi.dto.responses.AttachmentDto;
+import org.fitznet.fitznetapi.dto.responses.ImageContentDto;
 import org.fitznet.fitznetapi.service.ai.AttachmentService;
+import org.fitznet.fitznetapi.util.HttpCaching;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,9 +28,6 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasAnyAuthority('PERM_AI_USER','PERM_ADMIN')")
 public class AiAttachmentController {
 
-  /** Attachments never change, so the browser may keep them (in its private cache) for a year. */
-  static final String CACHE_CONTROL = "private, max-age=31536000, immutable";
-
   private final AttachmentService attachmentService;
 
   public AiAttachmentController(AttachmentService attachmentService) {
@@ -51,15 +49,15 @@ public class AiAttachmentController {
   /** The raw bytes with the attachment's {@code Content-Type}. */
   @GetMapping("/{id}")
   public ResponseEntity<byte[]> getAttachment(@PathVariable String id) {
-    AttachmentContentDto content = readAttachment(id);
+    ImageContentDto content = readAttachment(id);
     return ResponseEntity.ok()
         .contentType(MediaType.parseMediaType(content.mimeType()))
-        .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL)
+        .header(HttpHeaders.CACHE_CONTROL, HttpCaching.PRIVATE_IMMUTABLE)
         .body(content.data());
   }
 
   /** gRPC {@code GetAttachment}: the mime type and bytes. */
-  public AttachmentContentDto readAttachment(String id) {
+  public ImageContentDto readAttachment(String id) {
     return attachmentService.read(currentUsername(), id);
   }
 

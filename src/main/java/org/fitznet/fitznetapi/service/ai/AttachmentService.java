@@ -13,12 +13,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.fitznet.fitznetapi.dto.responses.AttachmentContentDto;
 import org.fitznet.fitznetapi.dto.responses.AttachmentDto;
+import org.fitznet.fitznetapi.dto.responses.ImageContentDto;
 import org.fitznet.fitznetapi.model.AiAttachment;
 import org.fitznet.fitznetapi.model.AiMessage;
 import org.fitznet.fitznetapi.model.MessageAttachment;
 import org.fitznet.fitznetapi.repository.AiAttachmentRepository;
+import org.fitznet.fitznetapi.service.images.ImageUploadValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -59,18 +60,7 @@ public class AttachmentService {
 
   /** Decodes the REST body's base64; 400 when it is invalid or obviously larger than the limit. */
   public byte[] decodeBase64(String dataBase64) {
-    if (dataBase64 == null || dataBase64.isBlank()) {
-      throw badRequest("dataBase64 must not be empty");
-    }
-    // 4 base64 characters carry 3 bytes; refuse before allocating the decoded copy.
-    if (dataBase64.length() > (long) (maxBytes / 3 + 1) * 4 + 4) {
-      throw tooLarge();
-    }
-    try {
-      return Base64.getDecoder().decode(dataBase64);
-    } catch (IllegalArgumentException ex) {
-      throw badRequest("dataBase64 is not valid base64");
-    }
+    return ImageUploadValidator.decodeBase64(dataBase64, maxBytes);
   }
 
   public AttachmentDto upload(String username, String name, String mimeType, byte[] data) {
@@ -80,18 +70,7 @@ public class AttachmentService {
     if (name.length() > 200) {
       throw badRequest("name must be at most 200 characters");
     }
-    if (mimeType == null || !isAllowedType(mimeType)) {
-      throw badRequest("Only image/png, image/jpeg and image/webp are accepted");
-    }
-    if (data == null || data.length == 0) {
-      throw badRequest("The image is empty");
-    }
-    if (data.length > maxBytes) {
-      throw tooLarge();
-    }
-    if (!matchesMagic(mimeType, data)) {
-      throw badRequest("The data is not a valid " + mimeType + " image");
-    }
+    ImageUploadValidator.requireSupportedImage(data, mimeType, maxBytes);
     Instant now = Instant.now();
     AiAttachment saved =
         attachments.save(
@@ -110,12 +89,12 @@ public class AttachmentService {
   }
 
   /** The bytes and content type of the caller's own attachment (404 otherwise). */
-  public AttachmentContentDto read(String username, String id) {
+  public ImageContentDto read(String username, String id) {
     AiAttachment attachment =
         attachments
             .findByIdAndOwnerUsername(id, username)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Attachment not found"));
-    return new AttachmentContentDto(attachment.getMimeType(), attachment.getData());
+    return new ImageContentDto(attachment.getMimeType(), attachment.getData());
   }
 
   // ---- use in turns ------------------------------------------------------------------------
@@ -228,39 +207,7 @@ public class AttachmentService {
     return ids;
   }
 
-  // ---- validation helpers ------------------------------------------------------------------
-
-  private static boolean isAllowedType(String mimeType) {
-    return mimeType.equals("image/png") || mimeType.equals("image/jpeg") || mimeType.equals("image/webp");
-  }
-
-  /** Does the content really start with the magic number of the declared format? */
-  static boolean matchesMagic(String mimeType, byte[] data) {
-    return switch (mimeType) {
-      case "image/png" ->
-          startsWith(data, 0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A);
-      case "image/jpeg" -> startsWith(data, 0, 0xFF, 0xD8, 0xFF);
-      case "image/webp" ->
-          startsWith(data, 0, 'R', 'I', 'F', 'F') && startsWith(data, 8, 'W', 'E', 'B', 'P');
-      default -> false;
-    };
-  }
-
-  private static boolean startsWith(byte[] data, int offset, int... expected) {
-    if (data.length < offset + expected.length) {
-      return false;
-    }
-    for (int i = 0; i < expected.length; i++) {
-      if ((data[offset + i] & 0xFF) != expected[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private ResponseStatusException tooLarge() {
-    return badRequest("The image is larger than " + maxBytes + " bytes");
-  }
+  // ---- helpers ---------------------------------------------------------------------------
 
   private static ResponseStatusException badRequest(String message) {
     return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
