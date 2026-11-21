@@ -5,10 +5,10 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 import org.bson.types.ObjectId;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
+import org.fitznet.fitznetapi.util.MongoRegex;
 import org.springframework.data.domain.Sort;
 import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -17,8 +17,6 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
 public class AiConversationRepositoryCustomImpl implements AiConversationRepositoryCustom {
-
-  private static final Pattern REGEX_META = Pattern.compile("[\\\\.^$|?*+()\\[\\]{}]");
 
   private final MongoTemplate mongoTemplate;
 
@@ -86,6 +84,6 @@ public class AiConversationRepositoryCustomImpl implements AiConversationReposit
 
   /** Escapes every regex metacharacter so the term matches literally. */
   static String literal(String term) {
-    return REGEX_META.matcher(term).replaceAll("\\\\$0");
+    return MongoRegex.literal(term);
   }
 }

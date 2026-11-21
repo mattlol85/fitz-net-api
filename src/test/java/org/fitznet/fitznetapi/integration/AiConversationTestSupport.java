@@ -2,21 +2,19 @@ package org.fitznet.fitznetapi.integration;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.fitznet.fitznetapi.model.AiConversation;
 import org.fitznet.fitznetapi.model.AiMessage;
 import org.fitznet.fitznetapi.model.AiNode;
 import org.fitznet.fitznetapi.model.ModelTarget;
 import org.fitznet.fitznetapi.model.NodeStatus;
-import org.fitznet.fitznetapi.model.User;
 import org.fitznet.fitznetapi.repository.AiConversationRepository;
 import org.fitznet.fitznetapi.repository.AiMessageRepository;
 import org.fitznet.fitznetapi.repository.AiNodeRepository;
 import org.fitznet.fitznetapi.repository.UserRepository;
 import org.fitznet.fitznetapi.service.ai.FakeOllama;
+import org.fitznet.fitznetapi.support.TestUsers;
 import org.fitznet.fitznetapi.util.JwtUtil;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -123,14 +121,7 @@ final class AiConversationTestSupport {
 
   static String saveUser(
       UserRepository users, JwtUtil jwt, String username, String... permissions) {
-    users.save(
-        User.builder()
-            .username(username)
-            .email(username + "@example.com")
-            .password("x")
-            .permissions(new HashSet<>(Set.of(permissions)))
-            .build());
-    return jwt.generateToken(username);
+    return TestUsers.saveUser(users, jwt, username, permissions);
   }
 
   static AiConversation seedConversation(
