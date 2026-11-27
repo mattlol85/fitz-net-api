@@ -21,6 +21,10 @@ import tools.jackson.databind.ObjectMapper;
  * sends Ollama an empty {@code /api/generate} with {@code keep_alive} on a background thread.
  * Concurrent warm-ups of the same node + model share one in-flight request; while it runs the
  * model counts as loaded for routing and the catalogue.
+ *
+ * <p>A warm-up is speculative: it fires when a model is picked, before any message exists. Nodes
+ * are people's own PCs, so it uses its own short {@code ollama.warmup-keep-alive} rather than the
+ * chat {@code ollama.keep-alive}; the first real chat then extends the model's stay.
  */
 @Service
 public class WarmUpService {
@@ -38,7 +42,7 @@ public class WarmUpService {
   private final ExecutorService executor;
   private final Duration connectTimeout;
   private final Duration readTimeout;
-  private final String keepAlive;
+  private final String warmUpKeepAlive;
 
   public WarmUpService(
       ModelRouter router,
@@ -48,7 +52,7 @@ public class WarmUpService {
       @Qualifier(AiExecutorConfig.AI_BACKGROUND_EXECUTOR) ExecutorService executor,
       @Value("${ollama.connect-timeout:5s}") Duration connectTimeout,
       @Value("${ollama.read-timeout:180s}") Duration readTimeout,
-      @Value("${ollama.keep-alive:30m}") String keepAlive) {
+      @Value("${ollama.warmup-keep-alive:5m}") String warmUpKeepAlive) {
     this.router = router;
     this.registry = registry;
     this.catalogService = catalogService;
@@ -56,7 +60,7 @@ public class WarmUpService {
     this.executor = executor;
     this.connectTimeout = connectTimeout;
     this.readTimeout = readTimeout;
-    this.keepAlive = keepAlive;
+    this.warmUpKeepAlive = warmUpKeepAlive;
   }
 
   /** {@code nodeId == null} warms wherever Auto would route right now. */
@@ -101,7 +105,7 @@ public class WarmUpService {
           objectMapper,
           target.address(),
           "/api/generate",
-          Map.of("model", target.model(), "keep_alive", keepAlive),
+          Map.of("model", target.model(), "keep_alive", warmUpKeepAlive),
           connectTimeout,
           readTimeout);
       logger.info(

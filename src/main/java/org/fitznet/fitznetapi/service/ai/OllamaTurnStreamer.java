@@ -87,7 +87,7 @@ public class OllamaTurnStreamer {
       @Value("${ollama.connect-timeout:5s}") Duration connectTimeout,
       @Value("${ollama.read-timeout:180s}") Duration readTimeout,
       @Value("${ollama.max-stream-duration:10m}") Duration maxStreamDuration,
-      @Value("${ollama.keep-alive:30m}") String keepAlive,
+      @Value("${ollama.keep-alive:10m}") String keepAlive,
       @Value("${ai.chat.cancel-poll-interval:1s}") Duration cancelPollInterval) {
     this.objectMapper = objectMapper;
     this.activityTracker = activityTracker;

@@ -70,7 +70,7 @@ class WarmUpServiceTest {
             executor,
             Duration.ofSeconds(2),
             Duration.ofSeconds(10),
-            "30m");
+            "5m");
     register(node("n1", "Matt-PC", ollama.address()).build());
   }
 
@@ -132,7 +132,7 @@ class WarmUpServiceTest {
     await(() -> ollama.generateCalls.get() == 1);
     String body = ollama.generateBodies().get(0);
     assertTrue(body.contains("\"model\":\"" + MODEL + "\""), body);
-    assertTrue(body.contains("\"keep_alive\":\"30m\""), body);
+    assertTrue(body.contains("\"keep_alive\":\"5m\""), body);
     assertTrue(registry.isInFlight("n1", MODEL));
     ollama.releaseGenerate();
     await(() -> !registry.isInFlight("n1", MODEL));

@@ -153,7 +153,7 @@ class LegacyChatActivityIntegrationTest {
   void shouldCountAStreamingLegacyChatAndSendKeepAlive() throws Exception {
     runWhileHeld("/node/node-1/chat/stream");
 
-    assertTrue(chatBody.get().contains("\"keep_alive\":\"30m\""), chatBody.get());
+    assertTrue(chatBody.get().contains("\"keep_alive\":\"10m\""), chatBody.get());
     assertEquals(0, tracker.active("node-1"));
   }
 
@@ -161,7 +161,7 @@ class LegacyChatActivityIntegrationTest {
   void shouldCountABufferedLegacyChatAndSendKeepAlive() throws Exception {
     runWhileHeld("/node/node-1/chat");
 
-    assertTrue(chatBody.get().contains("\"keep_alive\":\"30m\""), chatBody.get());
+    assertTrue(chatBody.get().contains("\"keep_alive\":\"10m\""), chatBody.get());
     assertEquals(0, tracker.active("node-1"));
   }
 }
